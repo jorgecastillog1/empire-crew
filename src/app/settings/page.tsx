@@ -63,7 +63,7 @@ function KeyInput({ keyData, onUpdate, onDelete }: {
         autoComplete="off"
         onChange={e => onUpdate(keyData.id, 'label', e.target.value)}
         className="w-36 bg-transparent text-xs text-slate-300 placeholder-slate-600 focus:outline-none border-r border-slate-800 pr-3" />
-      <input type={keyData.show ? 'text' : 'password'} autoComplete="new-password" placeholder="API Key / Token"
+      <input type='text' style={{WebkitTextSecurity: keyData.show ? 'none' : 'disc'}} placeholder="API Key / Token"
         value={keyData.value} onChange={e => onUpdate(keyData.id, 'value', e.target.value)}
         className="flex-1 bg-transparent text-xs text-slate-300 placeholder-slate-600 focus:outline-none font-mono" />
       <button onClick={() => onUpdate(keyData.id, 'show', !keyData.show)} className="text-slate-500 hover:text-slate-300 transition-colors">
@@ -228,7 +228,7 @@ export default function SettingsPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 flex items-center gap-3">
             <span className="text-xs text-slate-500 w-20 shrink-0">Bot Token</span>
-            <input type={telegram.show ? 'text' : 'password'} autoComplete="new-password" placeholder="123456:ABC-DEF..."
+            <input type='text' style={{WebkitTextSecurity: keyData.show ? 'none' : 'disc'}} placeholder="123456:ABC-DEF..."
               value={telegram.token} onChange={e => setTelegram({ ...telegram, token: e.target.value })}
               className="flex-1 bg-transparent text-xs text-slate-300 placeholder-slate-600 focus:outline-none font-mono" />
             <button onClick={() => setTelegram({ ...telegram, show: !telegram.show })} className="text-slate-500 hover:text-slate-300">
@@ -255,7 +255,7 @@ export default function SettingsPage() {
           ].map(item => (
             <div key={item.field} className="bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 flex items-center gap-3">
               <span className="text-xs text-slate-500 w-20 shrink-0">{item.label}</span>
-              <input type={cloudinary.show ? 'text' : 'password'} autoComplete="new-password" placeholder={item.placeholder}
+              <input type='text' style={{WebkitTextSecurity: keyData.show ? 'none' : 'disc'}} placeholder={item.placeholder}
                 value={(cloudinary as any)[item.field]}
                 onChange={e => setCloudinary({ ...cloudinary, [item.field]: e.target.value })}
                 className="flex-1 bg-transparent text-xs text-slate-300 placeholder-slate-600 focus:outline-none font-mono" />
@@ -280,7 +280,7 @@ export default function SettingsPage() {
           </div>
           <div className="bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 flex items-center gap-3">
             <span className="text-xs text-slate-500 w-20 shrink-0">Auth Token</span>
-            <input type={ngrok.show ? 'text' : 'password'} autoComplete="new-password" placeholder="2abc123..."
+            <input type='text' style={{WebkitTextSecurity: keyData.show ? 'none' : 'disc'}} placeholder="2abc123..."
               value={ngrok.authToken} onChange={e => setNgrok({ ...ngrok, authToken: e.target.value })}
               className="flex-1 bg-transparent text-xs text-slate-300 placeholder-slate-600 focus:outline-none font-mono" />
             <button onClick={() => setNgrok({ ...ngrok, show: !ngrok.show })} className="text-slate-500 hover:text-slate-300">
@@ -313,7 +313,7 @@ export default function SettingsPage() {
                 </div>
                 <div className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 flex items-center gap-2">
                   <span className="text-xs text-slate-500 shrink-0">API Key</span>
-                  <input type={acc.show ? 'text' : 'password'} autoComplete="new-password" placeholder="abc123..."
+                  <input type='text' style={{WebkitTextSecurity: keyData.show ? 'none' : 'disc'}} placeholder="abc123..."
                     value={acc.key} onChange={e => setKaggleAccounts(prev => prev.map(a => a.id === acc.id ? { ...a, key: e.target.value } : a))}
                     className="flex-1 bg-transparent text-xs text-slate-300 placeholder-slate-600 focus:outline-none font-mono" />
                   <button onClick={() => setKaggleAccounts(prev => prev.map(a => a.id === acc.id ? { ...a, show: !a.show } : a))} className="text-slate-500 hover:text-slate-300">
@@ -339,7 +339,7 @@ export default function SettingsPage() {
               <input type="text" placeholder="Etiqueta"
                 value={acc.label} onChange={e => setHuggingFaceAccounts(prev => prev.map(a => a.id === acc.id ? { ...a, label: e.target.value } : a))}
                 className="w-32 bg-transparent text-xs text-slate-300 placeholder-slate-600 focus:outline-none border-r border-slate-800 pr-3" />
-              <input type={acc.show ? 'text' : 'password'} autoComplete="new-password" placeholder="hf_xxxxxxx"
+              <input type='text' style={{WebkitTextSecurity: keyData.show ? 'none' : 'disc'}} placeholder="hf_xxxxxxx"
                 value={acc.token} onChange={e => setHuggingFaceAccounts(prev => prev.map(a => a.id === acc.id ? { ...a, token: e.target.value } : a))}
                 className="flex-1 bg-transparent text-xs text-slate-300 placeholder-slate-600 focus:outline-none font-mono" />
               <button onClick={() => setHuggingFaceAccounts(prev => prev.map(a => a.id === acc.id ? { ...a, show: !a.show } : a))} className="text-slate-500 hover:text-slate-300">
@@ -461,4 +461,6 @@ export default function SettingsPage() {
     </div>
   );
 }
+
+
 
