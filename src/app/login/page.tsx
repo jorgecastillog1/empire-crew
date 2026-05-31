@@ -27,8 +27,8 @@ export default function LoginPage() {
       setError('Credenciales incorrectas. Acceso denegado.');
       setLoading(false);
     } else {
-          window.location.href = '/';
-    }
+          window.location.replace('https://empire-crew.vercel.app/');
+      }  
   };
 
   return (
