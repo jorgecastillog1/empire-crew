@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  empire-app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - UPSTASH_REDIS_REST_URL=${UPSTASH_REDIS_REST_URL}
+      - UPSTASH_REDIS_REST_TOKEN=${UPSTASH_REDIS_REST_TOKEN}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - NEXTAUTH_URL=${NEXTAUTH_URL}
+      - ADMIN_EMAIL=${ADMIN_EMAIL}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+    restart: unless-stopped
+
+  hindsight-worker:
+    image: python:3.11-slim
+    volumes:
+      - ./workers:/app
+    working_dir: /app
+    command: >
+      sh -c "pip install requests -q &&
+             while true; do
+               python hindsight_worker.py;
+               sleep 86400;
+             done"
+    environment:
+      - API_BASE=http://empire-app:3000
+    depends_on:
+      - empire-app
+    restart: unless-stopped

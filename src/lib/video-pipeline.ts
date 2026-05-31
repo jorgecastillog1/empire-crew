@@ -1,0 +1,283 @@
+import { redis } from './redis';
+import { callLLM } from './orchestrator';
+import { logOrchestratorAction } from './orchestrator';
+import { writeProof } from './omk';
+import { executeTool } from './thoth';
+
+// ============================================================
+// VIDEO PIPELINE: Producto → Influencer → Video → Funnel
+// ============================================================
+
+export interface ProductAnalysis {
+  productName: string;
+  category: string;
+  targetAudience: string;
+  influencerType: string;
+  influencerPrompt: string;
+  backgroundPrompt: string;
+  salesScript: string;
+  hookText: string;
+  ctaText: string;
+  funnelSteps: string[];
+  pricePoint: string;
+  platform: 'tiktok' | 'instagram' | 'youtube';
+  videoDuration: number;
+}
+
+export interface VideoJob {
+  id: string;
+  companyId: string;
+  productDescription: string;
+  status: 'analyzing' | 'generating_influencer' | 'generating_video' | 'uploading' | 'done' | 'failed';
+  analysis?: ProductAnalysis;
+  influencerImageUrl?: string;
+  videoUrl?: string;
+  cloudinaryUrl?: string;
+  error?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+async function getServiceKey(label: string): Promise<string> {
+  const raw = await redis.get<string>('empire:settings:services');
+  const services: { label: string; apiKey: string }[] = raw
+    ? typeof raw === 'string' ? JSON.parse(raw) : raw
+    : [];
+  const svc = services.find(s => s.label.toLowerCase() === label.toLowerCase());
+  return svc?.apiKey ?? '';
+}
+
+async function getCloudinaryConfig(): Promise<{ cloudName: string; apiKey: string; apiSecret: string } | null> {
+  const raw = await redis.get<string>('empire:settings:cloudinary');
+  if (!raw) return null;
+  return typeof raw === 'string' ? JSON.parse(raw) : raw;
+}
+
+// FASE 1: Analizar producto con LLM
+export async function analyzeProduct(
+  productDescription: string,
+  platform: 'tiktok' | 'instagram' | 'youtube' = 'tiktok'
+): Promise<ProductAnalysis> {
+  const durations = { tiktok: 30, instagram: 30, youtube: 55 };
+
+  const systemPrompt = `You are an expert digital marketing strategist and AI video producer. 
+Analyze a product and design the perfect AI influencer video campaign.
+Respond ONLY in JSON with these exact fields:
+- productName: string
+- category: string (e.g. "fitness", "beauty", "education", "tech", "finance")
+- targetAudience: string
+- influencerType: string (e.g. "athletic woman 28yo", "professional man 35yo", "young beauty expert")
+- influencerPrompt: string (detailed Stable Diffusion prompt for the influencer image, photorealistic, professional)
+- backgroundPrompt: string (background/setting appropriate for the product)
+- salesScript: string (persuasive sales script 150 words max using AIDA formula)
+- hookText: string (first 3 seconds hook text, max 10 words)
+- ctaText: string (call to action text)
+- funnelSteps: array of 4 strings (awareness, interest, desire, action)
+- pricePoint: string
+- platform: "${platform}"
+- videoDuration: ${durations[platform]}`;
+
+  const result = await callLLM({
+    systemPrompt,
+    userMessage: 'Product: ' + productDescription,
+    agentId: 'video-analyzer',
+    maxTokens: 1000,
+  });
+
+  try {
+    const clean = result.response.replace(/```json|```/g, '').trim();
+    return JSON.parse(clean);
+  } catch {
+    return {
+      productName: productDescription.slice(0, 50),
+      category: 'general',
+      targetAudience: 'general audience',
+      influencerType: 'professional presenter',
+      influencerPrompt: 'Professional presenter, photorealistic, studio lighting, confident smile, 4k',
+      backgroundPrompt: 'Clean modern studio background, professional lighting',
+      salesScript: 'Discover the product that will change your life. ' + productDescription,
+      hookText: 'This will change everything...',
+      ctaText: 'Get yours now - Limited offer!',
+      funnelSteps: ['Awareness ad', 'Interest landing page', 'Desire testimonials', 'Action checkout'],
+      pricePoint: '$47',
+      platform,
+      videoDuration: durations[platform],
+    };
+  }
+}
+
+// FASE 2: Generar imagen del influencer con FAL.AI
+export async function generateInfluencerImage(analysis: ProductAnalysis): Promise<string> {
+  const falKey = await getServiceKey('FAL.AI');
+  if (!falKey) throw new Error('FAL.AI API key not configured');
+
+  const prompt = analysis.influencerPrompt + ', ' + analysis.backgroundPrompt + ', cinematic, 4k, photorealistic, professional portrait';
+
+  const res = await fetch('https://fal.run/fal-ai/flux/schnell', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Key ' + falKey,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      prompt,
+      image_size: 'portrait_9_16',
+      num_inference_steps: 4,
+      num_images: 1,
+    }),
+  });
+
+  const data = await res.json();
+  if (!res.ok) throw new Error('FAL.AI image error: ' + JSON.stringify(data));
+
+  const imageUrl = data.images?.[0]?.url;
+  if (!imageUrl) throw new Error('No image generated by FAL.AI');
+
+  await logOrchestratorAction('videoPipeline:influencer:generated:' + analysis.influencerType);
+  return imageUrl;
+}
+
+// FASE 3: Generar video con FAL.AI
+export async function generateVideo(
+  imageUrl: string,
+  analysis: ProductAnalysis
+): Promise<string> {
+  const falKey = await getServiceKey('FAL.AI');
+  if (!falKey) throw new Error('FAL.AI API key not configured');
+
+  const motionPrompt = 'Person speaking confidently to camera, ' + analysis.salesScript.slice(0, 100) + ', natural movement, professional presentation';
+
+  const res = await fetch('https://fal.run/fal-ai/kling-video/v1.6/pro/image-to-video', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Key ' + falKey,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      image_url: imageUrl,
+      prompt: motionPrompt,
+      duration: '5',
+      aspect_ratio: '9:16',
+    }),
+  });
+
+  const data = await res.json();
+  if (!res.ok) throw new Error('FAL.AI error: ' + JSON.stringify(data));
+
+  const videoUrl = data.video?.url ?? data.url;
+  if (!videoUrl) throw new Error('No video generated by FAL.AI');
+
+  await logOrchestratorAction('videoPipeline:video:generated');
+  return videoUrl;
+}
+
+// FASE 4: Subir a Cloudinary
+export async function uploadToCloudinary(videoUrl: string, jobId: string): Promise<string> {
+  const config = await getCloudinaryConfig();
+  if (!config) return videoUrl;
+
+  const formData = new FormData();
+  formData.append('file', videoUrl);
+  formData.append('upload_preset', 'empire_videos');
+  formData.append('public_id', 'videos/' + jobId);
+  formData.append('resource_type', 'video');
+
+  const res = await fetch('https://api.cloudinary.com/v1_1/' + config.cloudName + '/video/upload', {
+    method: 'POST',
+    body: formData,
+  });
+
+  const data = await res.json();
+  if (!res.ok) return videoUrl;
+
+  await logOrchestratorAction('videoPipeline:cloudinary:uploaded:' + jobId);
+  return data.secure_url ?? videoUrl;
+}
+
+// PIPELINE COMPLETO
+export async function runVideoPipeline(
+  productDescription: string,
+  companyId: string,
+  platform: 'tiktok' | 'instagram' | 'youtube' = 'tiktok'
+): Promise<VideoJob> {
+  const jobId = 'vjob:' + Date.now().toString(36);
+  const job: VideoJob = {
+    id: jobId,
+    companyId,
+    productDescription,
+    status: 'analyzing',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+
+  const save = async () => {
+    job.updatedAt = Date.now();
+    await redis.set('videojob:' + jobId, JSON.stringify(job), { ex: 86400 * 7 });
+  };
+
+  await save();
+  await logOrchestratorAction('videoPipeline:start:' + companyId);
+
+  try {
+    // Fase 1
+    job.status = 'analyzing';
+    await save();
+    job.analysis = await analyzeProduct(productDescription, platform);
+
+    // Fase 2
+    job.status = 'generating_influencer';
+    await save();
+    job.influencerImageUrl = await generateInfluencerImage(job.analysis);
+
+    // Fase 3
+    job.status = 'generating_video';
+    await save();
+    job.videoUrl = await generateVideo(job.influencerImageUrl, job.analysis);
+
+    // Fase 4
+    job.status = 'uploading';
+    await save();
+    job.cloudinaryUrl = await uploadToCloudinary(job.videoUrl, jobId);
+
+    job.status = 'done';
+    await save();
+
+    await writeProof('videoPipeline:complete', { productDescription, platform }, { jobId, videoUrl: job.cloudinaryUrl }, 'video-agent', companyId);
+    await executeTool('telegram_notify', {
+      message: 'Video generado exitosamente para ' + companyId + '\nProducto: ' + job.analysis.productName + '\nURL: ' + job.cloudinaryUrl,
+    });
+
+    await logOrchestratorAction('videoPipeline:done:' + jobId);
+
+  } catch (err: any) {
+    job.status = 'failed';
+    job.error = err.message;
+    await save();
+    await logOrchestratorAction('videoPipeline:failed:' + err.message.slice(0, 80));
+    await executeTool('telegram_notify', {
+      message: 'Error en pipeline de video: ' + err.message.slice(0, 100),
+    });
+  }
+
+  return job;
+}
+
+export async function getVideoJob(jobId: string): Promise<VideoJob | null> {
+  const raw = await redis.get<string>('videojob:' + jobId);
+  if (!raw) return null;
+  try { return typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { return null; }
+}
+
+export async function listVideoJobs(companyId: string): Promise<VideoJob[]> {
+  const keys = await redis.keys('videojob:vjob:*');
+  const jobs: VideoJob[] = [];
+  for (const key of keys) {
+    const raw = await redis.get<string>(key);
+    if (!raw) continue;
+    try {
+      const job = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (job.companyId === companyId) jobs.push(job);
+    } catch {}
+  }
+  return jobs.sort((a, b) => b.createdAt - a.createdAt);
+}

@@ -1,0 +1,84 @@
+[
+  {
+    "id": "alpha-trading",
+    "name": "Alpha Trading Algorítmico",
+    "type": "trading",
+    "budget": "$45,000 USD",
+    "sector": "Arbitraje de Funding Rates",
+    "metric": "Win Rate: 68.4%",
+    "agents": [
+      {
+        "name": "Agent-Funding-Bot",
+        "role": "Arbitraje de Tasas",
+        "status": "executing",
+        "model": "GPT-4o"
+      },
+      {
+        "name": "Agent-Trend-Alpha",
+        "role": "Análisis Técnico Macroscópico",
+        "status": "analyzing",
+        "model": "Claude 3.5 Sonnet"
+      }
+    ]
+  },
+  {
+    "id": "cine-media",
+    "name": "Empresa Cinematográfica",
+    "type": "cinematography",
+    "budget": "$120,000 USD",
+    "sector": "Guiones de Ciencia Ficción",
+    "metric": "Escenas Renderizadas: 24/30",
+    "agents": [
+      {
+        "name": "Agent-Script-Writer",
+        "role": "Generación de Guiones",
+        "status": "idle",
+        "model": "Claude 3.5 Sonnet"
+      },
+      {
+        "name": "Agent-Story-Board",
+        "role": "Orquestación de Prompts Visuales",
+        "status": "executing",
+        "model": "GPT-4o"
+      }
+    ]
+  },
+  {
+    "id": "marketing-pro",
+    "name": "Marketing Digital Automático",
+    "type": "marketing",
+    "budget": "$15,000 USD",
+    "sector": "Embudos de Conversión",
+    "metric": "CTR Promedio: 4.8%",
+    "agents": [
+      {
+        "name": "Agent-Copy-Ads",
+        "role": "Optimización de Copys",
+        "status": "analyzing",
+        "model": "GPT-4o"
+      },
+      {
+        "name": "Agent-Funnel-Analytic",
+        "role": "Asignación de Presupuesto en RRSS",
+        "status": "idle",
+        "model": "Llama 3"
+      }
+    ]
+  },
+  {
+    "id": "inmobiliaria-digital",
+    "name": "Inmobiliaria Digital",
+    "type": "custom",
+    "budget": "$0 USD",
+    "sector": "Tokenizacion de Propiedades",
+    "metric": "0.00% CTR / ROI",
+    "agents": [
+      {
+        "name": "Agent-Core-Bot",
+        "role": "Supervisor de Entorno",
+        "status": "idle",
+        "model": "GPT-4o"
+      }
+    ]
+  }
+]
