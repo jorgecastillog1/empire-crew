@@ -290,6 +290,7 @@ interface LLMOptions {
   agentId?: string;
   maxTokens?: number;
   useCache?: boolean;
+  temperature?: number;  // agregar esta línea
 }
 
 interface LLMResult {
@@ -305,7 +306,7 @@ export async function callLLM(opts: LLMOptions & { companyId?: string }): Promis
   const {
     systemPrompt,
     userMessage,
-    model = 'llama-3.3-70b-versatile',
+    model = 'openai/gpt-oss-120b',
     agentId = 'default',
     companyId = 'unknown',
     maxTokens = 1000,
