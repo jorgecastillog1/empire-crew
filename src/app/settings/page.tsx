@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { Settings, Key, Plus, Trash2, Eye, EyeOff, Save, Globe, BarChart3, ShoppingBag, Cpu, Send, Cloud, Database } from 'lucide-react';
+import { signOut } from 'next-auth/react';
 
 interface ApiKey {
   id: string;
@@ -444,6 +445,17 @@ export default function SettingsPage() {
             </button>
           ))}
         </div>
+      </Section>
+
+      {/* SESIÓN */}
+      <Section title="Sesión" icon={Settings} color="text-red-400">
+        <p className="text-xs text-slate-500">Cierra tu sesión activa en este navegador.</p>
+        <button
+          onClick={() => signOut({ callbackUrl: '/login' })}
+          className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition-colors"
+        >
+          Cerrar Sesión
+        </button>
       </Section>
     </div>
   );
