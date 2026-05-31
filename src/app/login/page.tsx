@@ -27,7 +27,7 @@ export default function LoginPage() {
       setError('Credenciales incorrectas. Acceso denegado.');
       setLoading(false);
     } else {
-      router.push('/');
+          window.location.href = '/';
     }
   };
 
