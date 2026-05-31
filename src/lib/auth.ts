@@ -2,6 +2,18 @@ import NextAuth from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  secret: process.env.NEXTAUTH_SECRET,
+  cookies: {
+    sessionToken: {
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: true,
+        maxAge: undefined,
+      },
+    },
+  },
   providers: [
     Credentials({
       credentials: {
