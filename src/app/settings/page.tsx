@@ -64,7 +64,6 @@ function KeyInput({ keyData, onUpdate, onDelete }: {
         onChange={e => onUpdate(keyData.id, 'label', e.target.value)}
         className="w-36 bg-transparent text-xs text-slate-300 placeholder-slate-600 focus:outline-none border-r border-slate-800 pr-3" />
       <input type={keyData.show ? 'text' : 'password'} autoComplete="new-password" placeholder="API Key / Token"
-        autoComplete="new-password"
         value={keyData.value} onChange={e => onUpdate(keyData.id, 'value', e.target.value)}
         className="flex-1 bg-transparent text-xs text-slate-300 placeholder-slate-600 focus:outline-none font-mono" />
       <button onClick={() => onUpdate(keyData.id, 'show', !keyData.show)} className="text-slate-500 hover:text-slate-300 transition-colors">
@@ -462,3 +461,4 @@ export default function SettingsPage() {
     </div>
   );
 }
+
