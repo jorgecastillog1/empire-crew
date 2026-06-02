@@ -15,9 +15,9 @@ export default auth((req) => {
     req.nextUrl.pathname.startsWith('/api/files') ||
     req.nextUrl.pathname.startsWith('/api/browser') ||
     req.nextUrl.pathname.startsWith('/api/calendar') ||
-    req.nextUrl.pathname.startsWith('/api/email');
+    req.nextUrl.pathname.startsWith('/api/email') ||
     req.nextUrl.pathname.startsWith('/api/supervisor') ||
-    req.nextUrl.pathname.startsWith('/api/lifecycle') ||
+    req.nextUrl.pathname.startsWith('/api/cron') ||
     req.nextUrl.pathname.startsWith('/api/planner');
 
   if (isApiAuth || isPublicApi) return NextResponse.next();

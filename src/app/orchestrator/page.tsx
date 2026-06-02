@@ -19,10 +19,16 @@ interface LogEntry {
   timestamp: number;
 }
 
+interface DiagnosisData {
+  status: string;
+  issues: string[];
+  recommendations: string[];
+}
+
 export default function OrchestratorPage() {
   const [report, setReport] = useState<OrchestratorReport | null>(null);
   const [log, setLog] = useState<LogEntry[]>([]);
-  const [diagnosis, setDiagnosis] = useState<string>('');
+  const [diagnosis, setDiagnosis] = useState<DiagnosisData | null>(null);
   const [loading, setLoading] = useState(true);
   const [diagnosing, setDiagnosing] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -54,9 +60,10 @@ export default function OrchestratorPage() {
     try {
       const res = await fetch('/api/orchestrator?action=diagnose');
       const data = await res.json();
+      // data.diagnosis contiene { status, issues, recommendations }
       setDiagnosis(data.diagnosis);
     } catch (e) {
-      setDiagnosis('Error al ejecutar diagnóstico.');
+      setDiagnosis({ status: 'error', issues: ['Error al ejecutar diagnóstico.'], recommendations: [] });
     } finally {
       setDiagnosing(false);
     }
@@ -238,8 +245,37 @@ export default function OrchestratorPage() {
           </button>
         </div>
         {diagnosis ? (
-          <div className="bg-slate-950 rounded-lg p-4 text-sm text-slate-300 whitespace-pre-wrap leading-relaxed border border-slate-800">
-            {diagnosis}
+          <div className="bg-slate-950 rounded-lg p-4 text-sm text-slate-300 leading-relaxed border border-slate-800 space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold">Estado del sistema:</span>
+              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                diagnosis.status === 'healthy' ? 'bg-emerald-500/20 text-emerald-400' :
+                diagnosis.status === 'degraded' ? 'bg-yellow-500/20 text-yellow-400' :
+                'bg-red-500/20 text-red-400'
+              }`}>
+                {diagnosis.status}
+              </span>
+            </div>
+            {diagnosis.issues.length > 0 && (
+              <div>
+                <div className="font-semibold mb-1">Problemas detectados:</div>
+                <ul className="list-disc list-inside space-y-1 text-slate-400">
+                  {diagnosis.issues.map((issue, i) => (
+                    <li key={i}>{issue}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {diagnosis.recommendations.length > 0 && (
+              <div>
+                <div className="font-semibold mb-1">Recomendaciones:</div>
+                <ul className="list-disc list-inside space-y-1 text-slate-400">
+                  {diagnosis.recommendations.map((rec, i) => (
+                    <li key={i}>{rec}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         ) : (
           <p className="text-sm text-slate-500">El orquestador analizará tu ecosistema con IA y te dará las 3 acciones más urgentes.</p>

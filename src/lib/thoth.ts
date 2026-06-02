@@ -106,14 +106,26 @@ registerTool('telegram_notify', async ({ message }) => {
   return { success: res.ok, output: data };
 });
 
-// --- Herramienta: buscar web con Tavily ---
+// --- Herramienta: buscar web con Tavily (CORREGIDO Fix #6) ---
 registerTool('web_search', async ({ query }) => {
-  const settingsRaw = await redis.get<string>('settings:credentials');
-  const settings = settingsRaw ? JSON.parse(settingsRaw) : {};
-  const accounts: { apiKey: string; active: boolean }[] = settings.tavilyAccounts ?? [];
-  const active = accounts.filter(a => a.active && a.apiKey);
-  const apiKey = active.length > 0 ? active[0].apiKey : (process.env.TAVILY_API_KEY ?? '');
-  if (!apiKey) return { success: false, output: null, error: 'No Tavily key' };
+  // Leer de empire:tavily:accounts (mismo formato que Settings UI)
+  const tavilyRaw = await redis.lrange('empire:tavily:accounts', 0, -1) as string[];
+  const tavilyAccounts = tavilyRaw.map(acc => {
+    try { return typeof acc === 'string' ? JSON.parse(acc) : acc; }
+    catch { return null; }
+  }).filter(Boolean);
+
+  let apiKey = '';
+  for (const acc of tavilyAccounts) {
+    const limited = await redis.get(`empire:ratelimit:tavily:${acc.id}`);
+    if (!limited && acc.apiKey) {
+      apiKey = acc.apiKey;
+      break;
+    }
+  }
+  if (!apiKey) apiKey = process.env.TAVILY_API_KEY ?? '';
+
+  if (!apiKey) return { success: false, output: null, error: 'No Tavily key configured' };
   const res = await fetch('https://api.tavily.com/search', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -123,11 +135,19 @@ registerTool('web_search', async ({ query }) => {
   return { success: res.ok, output: data.results ?? [] };
 });
 
-// --- Herramienta: generar imagen con FAL.AI ---
+// --- Herramienta: generar imagen con FAL.AI (CORREGIDO Fix #6) ---
 registerTool('generate_image', async ({ prompt, model = 'fal-ai/flux/schnell' }) => {
-  const settingsRaw = await redis.get<string>('settings:credentials');
-  const settings = settingsRaw ? JSON.parse(settingsRaw) : {};
-  const apiKey = settings.falApiKey;
+  // Leer de empire:settings:services (formato: [{ label: "FAL.AI", apiKey: "..." }])
+  const servicesRaw = await redis.get<string>('empire:settings:services');
+  let apiKey = '';
+  if (servicesRaw) {
+    try {
+      const services = typeof servicesRaw === 'string' ? JSON.parse(servicesRaw) : servicesRaw;
+      const falService = services.find((s: any) => s.label?.toLowerCase() === 'fal.ai');
+      if (falService) apiKey = falService.apiKey;
+    } catch {}
+  }
+  if (!apiKey) apiKey = process.env.FAL_API_KEY ?? '';
   if (!apiKey) return { success: false, output: null, error: 'FAL.AI key not configured' };
   const res = await fetch('https://fal.run/' + model, {
     method: 'POST',
@@ -138,11 +158,19 @@ registerTool('generate_image', async ({ prompt, model = 'fal-ai/flux/schnell' })
   return { success: res.ok, output: data };
 });
 
-// --- Herramienta: generar video con Replicate ---
+// --- Herramienta: generar video con Replicate (CORREGIDO Fix #6) ---
 registerTool('generate_video', async ({ prompt, imageUrl }) => {
-  const settingsRaw = await redis.get<string>('settings:credentials');
-  const settings = settingsRaw ? JSON.parse(settingsRaw) : {};
-  const apiKey = settings.replicateApiKey;
+  // Leer de empire:settings:services (formato: [{ label: "Replicate", apiKey: "..." }])
+  const servicesRaw = await redis.get<string>('empire:settings:services');
+  let apiKey = '';
+  if (servicesRaw) {
+    try {
+      const services = typeof servicesRaw === 'string' ? JSON.parse(servicesRaw) : servicesRaw;
+      const repService = services.find((s: any) => s.label?.toLowerCase() === 'replicate');
+      if (repService) apiKey = repService.apiKey;
+    } catch {}
+  }
+  if (!apiKey) apiKey = process.env.REPLICATE_API_KEY ?? '';
   if (!apiKey) return { success: false, output: null, error: 'Replicate key not configured' };
   const res = await fetch('https://api.replicate.com/v1/predictions', {
     method: 'POST',

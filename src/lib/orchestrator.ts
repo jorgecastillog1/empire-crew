@@ -179,6 +179,9 @@ export async function getNextApiKey(provider: 'groq' | 'openai' | 'anthropic'): 
   return '';
 }
 
+// Nota: esta función recibe tres strings (systemPrompt, userMessage, model) y genera un hash.
+// En algunos lugares se usa con parámetros semánticamente diferentes (ej. en consensus),
+// pero como todos son strings, sigue funcionando. No cambiar la firma por compatibilidad.
 export function hashPrompt(systemPrompt: string, userMessage: string, model: string): string {
   const raw = model + '||' + systemPrompt + '||' + userMessage;
   let hash = 0;
@@ -311,6 +314,7 @@ export async function callLLM(opts: LLMOptions & { companyId?: string }): Promis
     companyId = 'unknown',
     maxTokens = 1000,
     useCache = true,
+    temperature,          // ← NUEVO: extraer temperature
   } = opts;
 
   const traceId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -350,6 +354,15 @@ export async function callLLM(opts: LLMOptions & { companyId?: string }): Promis
       let response = '';
 
       if (provider.name === 'anthropic') {
+        const body: any = {
+          model: 'claude-3-haiku-20240307',
+          max_tokens: maxTokens,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userMessage }],
+        };
+        if (temperature !== undefined) {
+          body.temperature = temperature;
+        }
         const res = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
           headers: {
@@ -357,31 +370,30 @@ export async function callLLM(opts: LLMOptions & { companyId?: string }): Promis
             'x-api-key': apiKey,
             'anthropic-version': '2023-06-01',
           },
-          body: JSON.stringify({
-            model: 'claude-3-haiku-20240307',
-            max_tokens: maxTokens,
-            system: systemPrompt,
-            messages: [{ role: 'user', content: userMessage }],
-          }),
+          body: JSON.stringify(body),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error?.message ?? 'Anthropic error');
         response = data.content?.[0]?.text ?? '';
       } else {
+        const body: any = {
+          model: provider.name === 'openai' ? 'gpt-4o-mini' : model,
+          max_tokens: maxTokens,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userMessage },
+          ],
+        };
+        if (temperature !== undefined) {
+          body.temperature = temperature;
+        }
         const res = await fetch(provider.url, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': 'Bearer ' + apiKey,
           },
-          body: JSON.stringify({
-            model: provider.name === 'openai' ? 'gpt-4o-mini' : model,
-            max_tokens: maxTokens,
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userMessage },
-            ],
-          }),
+          body: JSON.stringify(body),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error?.message ?? provider.name + ' error');
@@ -436,15 +448,128 @@ export async function loadAgentState(companyId: string, agentId: string): Promis
   try { return typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { return null; }
 }
 
+// ============================================================
+// Función auxiliar local: promover agente básico a SuperAgente
+// ============================================================
+async function promoteBasicToSuperAgent(
+  basicId: string,
+  companyId: string,
+  basic: any
+): Promise<SuperAgent> {
+  const { getCompany } = await import('@/lib/db');
+  const company = await getCompany(companyId);
+  const companyType = company?.type ?? 'default';
+
+  const superAgent: SuperAgent = {
+    id: basicId,
+    companyId: companyId,
+    name: basic.name,
+    role: basic.role,
+    status: basic.status || 'idle',
+    model: basic.model,
+    systemPrompt: `Eres un agente experto en ${basic.role}. Actúa con total autonomía y autoridad.`,
+    capabilities: [basic.role],
+    connectedAPIs: [],
+    metrics: { primary: 'general', secondary: [], targets: {} },
+    memory: { episodic: [], semantic: [], working: '', procedural: [] },
+    hasVeto: false,
+    vetoConditions: [],
+    voteWeight: 1,
+    clearMetrics: { ...DEFAULT_CLEAR },
+    weeklyEvaluations: [],
+    revenueGenerated: 0,
+    createdAt: Date.now(),
+    lastEvaluatedAt: Date.now(),
+    generation: 1,
+    inheritedKnowledge: [],
+    errors: [],
+    wins: [],
+    status_lifecycle: 'alive',
+    tokenUsage: 0,
+    weeklyTokenBudget: 500000,
+    version: 1,
+  };
+
+  await saveAgentState(superAgent);
+  return superAgent;
+}
+
 export async function listAgents(companyId: string): Promise<SuperAgent[]> {
-  const keys = await redis.keys('agent:' + companyId + ':*');
+  // 1. SuperAgentes ya existentes
+  const superKeys = await redis.keys('agent:' + companyId + ':*');
   const agents: SuperAgent[] = [];
-  for (const key of keys) {
+  for (const key of superKeys) {
     const raw = await redis.get<string>(key);
     if (!raw) continue;
-    try { agents.push(typeof raw === 'string' ? JSON.parse(raw) : raw); } catch {}
+    try {
+      agents.push(typeof raw === 'string' ? JSON.parse(raw) : raw);
+    } catch {}
   }
+
+  // 2. Agentes básicos creados por UI (clave empire:agent:${companyId}:nombre)
+  const basicKeys = await redis.keys('empire:agent:*');
+  const prefix = companyId + ':';
+  
+  for (const key of basicKeys) {
+    const agentIdFull = key.replace('empire:agent:', '');
+    if (!agentIdFull.startsWith(prefix)) continue;
+    
+    const raw = await redis.get<string>(key);
+    if (!raw) continue;
+    try {
+      const basic = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      // Verificar si ya existe como SuperAgente (para no duplicar)
+      const alreadySuper = agents.some(a => a.id === basic.id || a.name === basic.name);
+      if (!alreadySuper) {
+        const superAgent = await promoteBasicToSuperAgent(basic.id, companyId, basic);
+        agents.push(superAgent);
+      }
+    } catch {}
+  }
+  
   return agents;
+}
+
+// Función auxiliar local para promover (sin depender de la ruta API)
+async function promoteToSuperAgentLocal(agentId: string, companyId: string, basic: any): Promise<SuperAgent> {
+  // Obtener la empresa para saber el tipo
+  const { getCompany } = await import('@/lib/db');
+  const company = await getCompany(companyId);
+  const companyType = company?.type ?? 'default';
+  
+  const superAgent: SuperAgent = {
+    id: agentId,
+    companyId: companyId,
+    name: basic.name,
+    role: basic.role,
+    status: basic.status || 'idle',
+    model: basic.model,
+    systemPrompt: `Eres un agente experto en ${basic.role}. Actúa con total autonomía y autoridad.`,
+    capabilities: [basic.role],
+    connectedAPIs: [],
+    metrics: { primary: 'general', secondary: [], targets: {} },
+    memory: { episodic: [], semantic: [], working: '', procedural: [] },
+    hasVeto: false,
+    vetoConditions: [],
+    voteWeight: 1,
+    clearMetrics: { ...DEFAULT_CLEAR },
+    weeklyEvaluations: [],
+    revenueGenerated: 0,
+    createdAt: Date.now(),
+    lastEvaluatedAt: Date.now(),
+    generation: 1,
+    inheritedKnowledge: [],
+    errors: [],
+    wins: [],
+    status_lifecycle: 'alive',
+    tokenUsage: 0,
+    weeklyTokenBudget: 500000,
+    version: 1,
+  };
+  
+  // Guardar como SuperAgente para futuras llamadas
+  await saveAgentState(superAgent);
+  return superAgent;
 }
 
 export async function createCheckpoint(agent: SuperAgent): Promise<string> {

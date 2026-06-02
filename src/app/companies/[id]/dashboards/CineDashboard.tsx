@@ -56,34 +56,31 @@ export default function CineDashboard({ company }: Props) {
 
   // ─── Generar video ─────────────────────────────────────────────────────────
   const generate = async () => {
-    if (!prompt.trim()) return;
-    setGenerating(true); setGenError(''); setResult(null);
-    try {
-      const res = await fetch('/api/video', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'generate',
-          companyId: company.id,
-          companyType: 'cinematography',
-          payload: {
-            prompt: selectedMythology ? `[${selectedMythology}] ${prompt.trim()}` : prompt.trim(),
-            style,
-            duration: parseInt(duration),
-          },
-        }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      setResult(data);
-      fetchJobs();
-    } catch (e: any) {
-      setGenError(e.message ?? 'Error desconocido');
-    } finally {
-      setGenerating(false);
-    }
-  };
+  if (!prompt.trim()) return;
+  setGenerating(true); setGenError(''); setResult(null);
+  try {
+    const res = await fetch('/api/video', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        productDescription: selectedMythology
+          ? `[Mitología ${selectedMythology}] ${prompt.trim()} — Estilo: ${style}, Duración: ${duration}s`
+          : `${prompt.trim()} — Estilo: ${style}, Duración: ${duration}s`,
+        companyId: company.id,
+        platform: 'tiktok',
+      }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    setResult(data);
+    fetchJobs();
+  } catch (e: any) {
+    setGenError(e.message ?? 'Error desconocido');
+  } finally {
+    setGenerating(false);
+  }
+};
 
   const videosGenerated = jobs.filter(j => j.status === 'done').length;
   const videosInQueue   = jobs.filter(j => j.status !== 'done').length;
@@ -163,14 +160,13 @@ export default function CineDashboard({ company }: Props) {
         {result && (
           <div style={{ marginTop: 12, padding: '10px 12px', background: 'rgba(240,180,41,0.08)', border: '1px solid rgba(240,180,41,0.2)', borderRadius: 8 }}>
             <div style={{ fontSize: 12, color: '#f0b429', marginBottom: 6 }}>✅ Job creado: {result.id}</div>
-            {result.result?.url
-              ? <video controls style={{ width: '100%', borderRadius: 8, marginTop: 8 }} src={result.result.url} />
+            {(result.cloudinaryUrl ?? result.videoUrl)
+              ? <video controls style={{ width: '100%', borderRadius: 8, marginTop: 8 }} src={result.cloudinaryUrl ?? result.videoUrl} />
               : <div style={{ fontSize: 11, color: '#8b949e' }}>Estado: {result.status} — procesando en segundo plano</div>
             }
           </div>
         )}
-      </div>
-
+    </div>
       {/* ─── Pipeline + Audiencia ─────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         <div style={{ background: '#0d1117', border: '1px solid #1e2433', borderRadius: 12, padding: 16 }}>

@@ -127,31 +127,31 @@ export default function TradingChart({ symbol = 'BTCUSDT' }: { symbol?: string }
 
   // ─── Send signal to Telegram ──────────────────────────────
   const sendToTelegram = useCallback(async () => {
-    if (!signal) return;
-    try {
-      await fetch('/api/telegram', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'send',
-          message: `🤖 *EMPIRE TRADING SIGNAL*\n\n` +
-            `📊 *${symbol}* — ${signal.type}\n` +
-            `🎯 Confianza: ${signal.confidence}%\n` +
-            `💰 Entrada: $${signal.entryPrice.toLocaleString()}\n` +
-            `🛑 Stop Loss: $${signal.stopLoss.toLocaleString()}\n\n` +
-            `📡 *Señales de Agentes:*\n` +
-            `• Liquidez: ${signal.agents.liquidity}\n` +
-            `• CVD Delta: ${signal.agents.cvd}\n` +
-            `• Sesión: ${signal.agents.session}\n` +
-            `• Smart Money: ${signal.agents.smartMoney}\n` +
-            `• Funding/OI: ${signal.agents.funding}\n\n` +
-            `💭 ${signal.reasoning}\n\n` +
-            `⏰ ${new Date().toLocaleString('es-CO')}`,
-        }),
-      });
-      alert('✅ Señal enviada a Telegram');
-    } catch (e) { alert('❌ Error enviando a Telegram'); }
-  }, [signal, symbol]);
+  if (!signal) return;
+  try {
+    await fetch('/api/telegram', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'notify',   // ← CAMBIADO DE 'send' A 'notify'
+        message: `🤖 *EMPIRE TRADING SIGNAL*\n\n` +
+          `📊 *${symbol}* — ${signal.type}\n` +
+          `🎯 Confianza: ${signal.confidence}%\n` +
+          `💰 Entrada: $${signal.entryPrice.toLocaleString()}\n` +
+          `🛑 Stop Loss: $${signal.stopLoss.toLocaleString()}\n\n` +
+          `📡 *Señales de Agentes:*\n` +
+          `• Liquidez: ${signal.agents.liquidity}\n` +
+          `• CVD Delta: ${signal.agents.cvd}\n` +
+          `• Sesión: ${signal.agents.session}\n` +
+          `• Smart Money: ${signal.agents.smartMoney}\n` +
+          `• Funding/OI: ${signal.agents.funding}\n\n` +
+          `💭 ${signal.reasoning}\n\n` +
+          `⏰ ${new Date().toLocaleString('es-CO')}`,
+      }),
+    });
+    alert('✅ Señal enviada a Telegram');
+  } catch (e) { alert('❌ Error enviando a Telegram'); }
+}, [signal, symbol]);
 
   // ─── Init chart ───────────────────────────────────────────
   useEffect(() => {
@@ -397,9 +397,9 @@ useEffect(() => {
         background: signal ? 'linear-gradient(135deg, #2196f3, #00c896)' : '#1e2433',
         color: '#fff', fontSize: 15, fontWeight: 700,
         opacity: !signal || loading ? 0.5 : 1,
-      }}>
-        📱 Enviar Señal a Telegram
-      </button>
+     }}>
+       📱 Enviar Señal a Telegram
+     </button>
 
       {loading && (
         <div style={{ textAlign: 'center', padding: 16, color: '#8b949e', fontSize: 13 }}>

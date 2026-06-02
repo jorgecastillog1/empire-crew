@@ -1,22 +1,7 @@
 import { redis, KEY } from '@/lib/redis';
+import { Company, Agent } from '@/types/company';  // ← import unificado
 
-export interface Company {
-  id: string;
-  name: string;
-  type: string;
-  budget: string;
-  sector: string;
-  metric: string;
-  agents: Agent[];
-}
-
-export interface Agent {
-  name: string;
-  role: string;
-  status: 'idle' | 'executing' | 'analyzing';
-  model: string;
-}
-
+// Nota: las empresas por defecto ahora se definen con el tipo Company
 const DEFAULT_COMPANIES: Company[] = [
   {
     id: 'alpha-trading',
@@ -59,22 +44,18 @@ const DEFAULT_COMPANIES: Company[] = [
 export async function getCompanies(): Promise<Company[]> {
   try {
     const ids = await redis.smembers(KEY.companies);
-
     if (!ids || ids.length === 0) {
-      // Primera vez: inicializar con empresas por defecto
       for (const company of DEFAULT_COMPANIES) {
         await saveCompanyToRedis(company);
       }
       return DEFAULT_COMPANIES;
     }
-
     const companies = await Promise.all(
       ids.map(async (id: string) => {
         const data = await redis.get(KEY.company(id as string));
         return data as Company;
       })
     );
-
     return companies.filter(Boolean);
   } catch (error) {
     console.error('Error al obtener empresas de Redis:', error);
@@ -112,18 +93,15 @@ export async function saveCompany(company: Omit<Company, 'metric' | 'agents'>): 
 export async function addAgentToCompany(companyId: string, agent: Agent): Promise<Company | null> {
   const company = await getCompany(companyId);
   if (!company) return null;
-
   company.agents.push(agent);
   await redis.set(KEY.company(companyId), JSON.stringify(company));
-
-  // Guardar agente como documento independiente
   const agentId = companyId + ':' + agent.name;
   const independentAgent = { ...agent, id: agentId, companyId };
   await redis.set(KEY.agent(agentId), JSON.stringify(independentAgent));
   await redis.sadd(KEY.companyAgents(companyId), agentId);
-
   return company;
 }
+
 export async function updateCompany(id: string, updates: Partial<Company>): Promise<Company | null> {
   const company = await getCompany(id);
   if (!company) return null;
@@ -131,23 +109,12 @@ export async function updateCompany(id: string, updates: Partial<Company>): Prom
   await redis.set(KEY.company(id), JSON.stringify(updated));
   return updated;
 }
-export async function recordAgentEvent(
-  agentId: string,
-  companyId: string,
-  eventType: string,
-  details: string,
-  extras?: { cost?: number; durationMs?: number }
-): Promise<void> {
-  try {
-    const event = {
-      agentId, companyId, eventType, details,
-      cost: extras?.cost ?? 0,
-      durationMs: extras?.durationMs ?? 0,
-      timestamp: Date.now(),
-    };
-    await redis.lpush('empire:monitor:events:' + agentId, JSON.stringify(event));
-    await redis.ltrim('empire:monitor:events:' + agentId, 0, 99);
-    await redis.lpush('empire:monitor:events:company:' + companyId, JSON.stringify(event));
-    await redis.ltrim('empire:monitor:events:company:' + companyId, 0, 199);
-  } catch {}
-}
+
+// Re-exportar tipos para mantener compatibilidad con imports existentes
+export type { Company, Agent };
+
+// ──────────────────────────────────────────────────────────
+// NOTA: la función recordAgentEvent ha sido eliminada porque
+// ya existe en @/lib/agentMonitor.ts (versión más completa).
+// No eliminar nada más.
+// ──────────────────────────────────────────────────────────

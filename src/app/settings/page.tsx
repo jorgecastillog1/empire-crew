@@ -49,7 +49,7 @@ const ADS_PLATFORMS = [
 ];
 
 const SERVICE_PLATFORMS = [
-  'Binance', 'Brevo', 'Vidu', 'Stripe', 'PayPal', 'Systeme.io', 'Canva', 'OpenAI', 'Replicate', 'Anthropic', 'FAL.AI'
+  'Binance', 'Brevo', 'Vidu', 'Stripe', 'PayPal', 'Systeme.io', 'Canva', 'OpenAI', 'Replicate', 'Anthropic', 'FAL.AI', 'Jina'
 ];
 
 function KeyInput({ keyData, onUpdate, onDelete }: {

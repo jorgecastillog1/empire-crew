@@ -25,7 +25,7 @@ export interface ServiceHealth {
 }
 
 export interface Diagnosis {
-  overall: 'healthy' | 'degraded' | 'down';
+  overall: 'healthy' | 'degraded' | 'down' | 'critical';
   services: ServiceHealth[];
 }
 

@@ -44,6 +44,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(result);
     }
 
+    // ─── Balance de Futuros (único bloque, sin duplicado) ───
     if (action === 'futures_balance') {
       const { getFuturesBalance } = await import('@/lib/binance');
       const balance = await getFuturesBalance();
@@ -54,10 +55,6 @@ export async function GET(request: NextRequest) {
       const { getAccountBalance } = await import('@/lib/binance');
       const balance = await getAccountBalance();
       return NextResponse.json(balance);
-    }
-
-    if (action === 'futures_balance') {
-      return NextResponse.json({ USDT: 0, BTC: 0, timestamp: Date.now() });
     }
 
     if (action === 'open_orders') {
