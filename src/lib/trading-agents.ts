@@ -20,14 +20,13 @@ export async function runLiquidityMapAgent(symbol: string): Promise<{
   nearestTarget: { direction: 'UP' | 'DOWN'; price: number; strength: number };
   bias: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
 }> {
-  const res = await fetch(`https://binance-proxy.trendtraderg11.workers.dev/api/v3/depth?symbol=${symbol}&limit=100`);
+  const res = await fetch(`https://api.binance.com/api/v3/depth?symbol=${symbol}&limit=100`);
   const book = await res.json();
 
   const asks: [string, string][] = book.asks ?? [];
   const bids: [string, string][] = book.bids ?? [];
   const midPrice = (parseFloat(asks[0]?.[0] ?? '0') + parseFloat(bids[0]?.[0] ?? '0')) / 2;
 
-  // Detectar muros de liquidez (acumulaciones grandes)
   const liquidityAbove = asks
     .map(([p, q]) => ({ price: parseFloat(p), strength: parseFloat(q) }))
     .filter(l => l.strength > 5)
@@ -118,9 +117,9 @@ export async function runFundingOIAgent(): Promise<{
   for (const symbol of PAIRS) {
     try {
       const [fundingRes, oiRes, oiHistRes] = await Promise.all([
-        fetch(`https://binance-proxy.trendtraderg11.workers.dev/fapi/v1/premiumIndex?symbol=${symbol}`).then(r => r.json()),
-        fetch(`https://binance-proxy.trendtraderg11.workers.dev/fapi/v1/openInterest?symbol=${symbol}`).then(r => r.json()),
-        fetch(`https://binance-proxy.trendtraderg11.workers.dev/futures/data/openInterestHist?symbol=${symbol}&period=1h&limit=25`).then(r => r.json()),
+        fetch(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${symbol}`).then(r => r.json()),
+        fetch(`https://fapi.binance.com/fapi/v1/openInterest?symbol=${symbol}`).then(r => r.json()),
+        fetch(`https://fapi.binance.com/futures/data/openInterestHist?symbol=${symbol}&period=1h&limit=25`).then(r => r.json()),
       ]);
 
       const fundingRate = parseFloat(fundingRes.lastFundingRate ?? '0');
@@ -225,7 +224,7 @@ export async function runLiquidationHeatmapAgent(): Promise<{
       const data = await res.json();
       const chart = data?.data?.chart ?? [];
 
-      const currentRes = await fetch(`https://binance-proxy.trendtraderg11.workers.dev/api/v3/ticker/price?symbol=${symbol}`);
+      const currentRes = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`);
       const currentData = await currentRes.json();
       const currentPrice = parseFloat(currentData.price ?? '0');
 
@@ -272,7 +271,6 @@ export async function runSmartMoneyAgent(symbol: string): Promise<{
     const curr = klines[i];
     const next = klines[i + 1];
 
-    // Fair Value Gap alcista: gap entre low de vela anterior y high de vela siguiente
     if (next.low > prev.high) {
       fairValueGaps.push({
         high: next.low,
@@ -282,7 +280,6 @@ export async function runSmartMoneyAgent(symbol: string): Promise<{
       });
     }
 
-    // Fair Value Gap bajista
     if (next.high < prev.low) {
       fairValueGaps.push({
         high: prev.low,
@@ -292,7 +289,6 @@ export async function runSmartMoneyAgent(symbol: string): Promise<{
       });
     }
 
-    // Order Block: vela de volumen alto seguida de movimiento fuerte
     const volumeAvg = klines.slice(Math.max(0, i - 10), i).reduce((a, k) => a + k.volume, 0) / 10;
     if (curr.volume > volumeAvg * 2) {
       const isBullish = curr.close > curr.open;
@@ -304,7 +300,6 @@ export async function runSmartMoneyAgent(symbol: string): Promise<{
     }
   }
 
-  // Actividad de ballenas via volumen de grandes velas
   const recentKlines = klines.slice(-20);
   const avgVol = recentKlines.reduce((a, k) => a + k.volume, 0) / recentKlines.length;
   const buyPressure = recentKlines.filter(k => k.close > k.open && k.volume > avgVol * 1.5).length;
@@ -355,13 +350,12 @@ export async function runRiskPositionAgent(
   const openOrders = await getOpenOrders();
 
   const riskPerTrade = Math.abs(entryPrice - stopLoss) / entryPrice;
-  const winRate = 0.55; // Estimado conservador
+  const winRate = 0.55;
   const avgWin = riskPerTrade * 2;
   const avgLoss = riskPerTrade;
 
-  // Kelly Criterion
   const kelly = (winRate * avgWin - (1 - winRate) * avgLoss) / avgWin;
-  const kellyFraction = Math.min(kelly * 0.25, 0.05); // 25% Kelly, máx 5% capital
+  const kellyFraction = Math.min(kelly * 0.25, 0.05);
 
   const riskAmount = totalUSDT * kellyFraction;
   const positionSizeUSDT = riskAmount / riskPerTrade;
@@ -411,13 +405,12 @@ export async function runExecutionAgent(
       return { executed: false, orders: [], totalSlippage: 0, error: risk.reason };
     }
 
-    // TWAP: dividir orden en 3 partes para minimizar slippage
     const partSize = risk.positionSizeCoin / 3;
     const orders = [];
     let totalSlippage = 0;
 
     for (let i = 0; i < 3; i++) {
-      await new Promise(r => setTimeout(r, i * 2000)); // 2s entre partes
+      await new Promise(r => setTimeout(r, i * 2000));
       const order = await placeFuturesOrder(symbol, side, Math.round(partSize * 1000) / 1000, 10, 'MARKET');
       const executedPrice = parseFloat(order.fills?.[0]?.price ?? entryPrice.toString());
       const slippage = Math.abs(executedPrice - entryPrice) / entryPrice * 100;
@@ -446,7 +439,6 @@ export async function runMetaStrategist(symbol: string): Promise<{
   stopLoss: number;
   weights: Record<string, number>;
 }> {
-  // Recopilar señales de todos los agentes
   const [liquidity, cvd, session, smartMoney] = await Promise.all([
     runLiquidityMapAgent(symbol),
     runCVDDeltaAgent(symbol),
@@ -457,7 +449,6 @@ export async function runMetaStrategist(symbol: string): Promise<{
   const fundingOI = await runFundingOIAgent();
   const fundingData = fundingOI.pairs.find(p => p.symbol === symbol);
 
-  // Ponderación de señales
   const signals: Record<string, number> = {
     liquidity: liquidity.bias === 'BULLISH' ? 1 : liquidity.bias === 'BEARISH' ? -1 : 0,
     cvd: cvd.signal === 'BUY' ? 1 : cvd.signal === 'SELL' ? -1 : 0,
@@ -470,15 +461,13 @@ export async function runMetaStrategist(symbol: string): Promise<{
   const score = Object.entries(signals).reduce((total, [key, val]) => total + val * (weights[key as keyof typeof weights] ?? 0), 0);
   const confidence = Math.round(Math.abs(score) * 100);
 
-  // Obtener precio actual
-  const priceRes = await fetch(`https://binance-proxy.trendtraderg11.workers.dev/api/v3/ticker/price?symbol=${symbol}`);
+  const priceRes = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`);
   const priceData = await priceRes.json();
   const currentPrice = parseFloat(priceData.price ?? '0');
 
-  const stopDistance = 0.015; // 1.5%
+  const stopDistance = 0.015;
   const stopLoss = score > 0 ? currentPrice * (1 - stopDistance) : currentPrice * (1 + stopDistance);
 
-  // LLM para contexto macro
   const llmContext = await callLLM({
     systemPrompt: `You are an elite crypto trading strategist. Analyze signals and provide a final decision. 
     Respond in JSON: {"decision": "EXECUTE_LONG"|"EXECUTE_SHORT"|"WAIT"|"CASH", "reasoning": "brief explanation in Spanish"}`,
@@ -534,7 +523,6 @@ export async function runEliteTradingCycle(): Promise<{
       const meta = await runMetaStrategist(symbol);
       decisions.push({ symbol, decision: meta.decision, confidence: meta.confidence, reasoning: meta.reasoning });
 
-      // Solo ejecutar si hay alta confianza
       if ((meta.decision === 'EXECUTE_LONG' || meta.decision === 'EXECUTE_SHORT') && meta.confidence >= 70) {
         const side = meta.decision === 'EXECUTE_LONG' ? 'BUY' : 'SELL';
         const execResult = await runExecutionAgent(symbol, side, 50, meta.entryPrice, meta.stopLoss);
