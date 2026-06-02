@@ -62,33 +62,70 @@ export async function getPrices(symbols: string[]): Promise<Record<string, numbe
 
 // ─── Balance de la cuenta ─────────────────────────────────────
 export async function getAccountBalance(): Promise<Record<string, number>> {
-  const data = await binanceRequest('GET', '/api/v3/account', {}, true);
-  const balances: Record<string, number> = {};
-  for (const b of data.balances ?? []) {
-    const free = parseFloat(b.free);
-    if (free > 0) balances[b.asset] = free;
+  console.log('🔍 [SPOT] Iniciando getAccountBalance');
+  console.log('🔑 [SPOT] API_KEY presente:', !!API_KEY);
+  console.log('🔑 [SPOT] SECRET_KEY presente:', !!SECRET_KEY);
+  
+  try {
+    const data = await binanceRequest('GET', '/api/v3/account', {}, true);
+    console.log('✅ [SPOT] Respuesta completa de Binance:', JSON.stringify(data, null, 2));
+    
+    const balances: Record<string, number> = {};
+    for (const b of data.balances ?? []) {
+      const free = parseFloat(b.free);
+      if (free > 0) balances[b.asset] = free;
+    }
+    console.log('💰 [SPOT] Balances filtrados (con saldo >0):', balances);
+    return balances;
+  } catch (error: any) {
+    console.error('❌ [SPOT] Error en getAccountBalance:', error.message);
+    if (error.response) console.error('Detalle respuesta:', error.response);
+    return {};
   }
-  return balances;
 }
 // ─── Balance de Futuros ─────────────────────────────────────
 export async function getFuturesBalance(): Promise<Record<string, number>> {
+  console.log('🔍 [FUTURES] Iniciando getFuturesBalance');
+  console.log('🔑 [FUTURES] API_KEY presente:', !!API_KEY);
+  console.log('🔑 [FUTURES] SECRET_KEY presente:', !!SECRET_KEY);
+  
+  if (!API_KEY || !SECRET_KEY) {
+    console.error('❌ [FUTURES] Faltan claves API de Binance');
+    return {};
+  }
+  
   try {
     const timestamp = Date.now();
-    let queryString = 'timestamp=' + timestamp;
-    queryString += '&signature=' + sign(queryString);
-    const url = 'https://fapi.binance.com/fapi/v2/account?' + queryString;
+    let queryString = `timestamp=${timestamp}`;
+    queryString += `&signature=${sign(queryString)}`;
+    const url = `https://fapi.binance.com/fapi/v2/account?${queryString}`;
+    console.log('🌐 [FUTURES] URL de la petición:', url);
+    
     const res = await fetch(url, {
       headers: { 'X-MBX-APIKEY': API_KEY },
     });
-    if (!res.ok) throw new Error('Futures API: ' + res.status);
+    
+    console.log('📡 [FUTURES] Código de respuesta HTTP:', res.status);
+    
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error(`❌ [FUTURES] Error HTTP ${res.status}: ${errorText}`);
+      return {};
+    }
+    
     const data = await res.json();
+    console.log('✅ [FUTURES] Respuesta completa de Binance:', JSON.stringify(data, null, 2));
+    
     const balances: Record<string, number> = {};
     for (const b of data.assets ?? []) {
       const free = parseFloat(b.availableBalance);
       if (free > 0) balances[b.asset] = free;
     }
+    console.log('💰 [FUTURES] Balances filtrados (con saldo >0):', balances);
     return balances;
-  } catch (e: any) {
+  } catch (error: any) {
+    console.error('❌ [FUTURES] Excepción en getFuturesBalance:', error.message);
+    if (error.response) console.error('Detalle respuesta:', error.response);
     return {};
   }
 }
