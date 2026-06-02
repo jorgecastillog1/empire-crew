@@ -20,7 +20,7 @@ export async function runLiquidityMapAgent(symbol: string): Promise<{
   nearestTarget: { direction: 'UP' | 'DOWN'; price: number; strength: number };
   bias: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
 }> {
-  const res = await fetch(`https://binance-proxy.trendraderg11.workers.dev/api/v3/depth?symbol=${symbol}&limit=100`);
+  const res = await fetch(`https://binance-proxy.trendtraderg11.workers.dev/api/v3/depth?symbol=${symbol}&limit=100`);
   const book = await res.json();
 
   const asks: [string, string][] = book.asks ?? [];
@@ -118,9 +118,9 @@ export async function runFundingOIAgent(): Promise<{
   for (const symbol of PAIRS) {
     try {
       const [fundingRes, oiRes, oiHistRes] = await Promise.all([
-        fetch(`https://binance-proxy.trendraderg11.workers.dev/fapi/v1/premiumIndex?symbol=${symbol}`).then(r => r.json()),
-        fetch(`https://binance-proxy.trendraderg11.workers.dev/fapi/v1/openInterest?symbol=${symbol}`).then(r => r.json()),
-        fetch(`https://binance-proxy.trendraderg11.workers.dev/futures/data/openInterestHist?symbol=${symbol}&period=1h&limit=25`).then(r => r.json()),
+        fetch(`https://binance-proxy.trendtraderg11.workers.dev/fapi/v1/premiumIndex?symbol=${symbol}`).then(r => r.json()),
+        fetch(`https://binance-proxy.trendtraderg11.workers.dev/fapi/v1/openInterest?symbol=${symbol}`).then(r => r.json()),
+        fetch(`https://binance-proxy.trendtraderg11.workers.dev/futures/data/openInterestHist?symbol=${symbol}&period=1h&limit=25`).then(r => r.json()),
       ]);
 
       const fundingRate = parseFloat(fundingRes.lastFundingRate ?? '0');
@@ -225,7 +225,7 @@ export async function runLiquidationHeatmapAgent(): Promise<{
       const data = await res.json();
       const chart = data?.data?.chart ?? [];
 
-      const currentRes = await fetch(`https://binance-proxy.trendraderg11.workers.dev/api/v3/ticker/price?symbol=${symbol}`);
+      const currentRes = await fetch(`https://binance-proxy.trendtraderg11.workers.dev/api/v3/ticker/price?symbol=${symbol}`);
       const currentData = await currentRes.json();
       const currentPrice = parseFloat(currentData.price ?? '0');
 
@@ -471,7 +471,7 @@ export async function runMetaStrategist(symbol: string): Promise<{
   const confidence = Math.round(Math.abs(score) * 100);
 
   // Obtener precio actual
-  const priceRes = await fetch(`https://binance-proxy.trendraderg11.workers.dev/api/v3/ticker/price?symbol=${symbol}`);
+  const priceRes = await fetch(`https://binance-proxy.trendtraderg11.workers.dev/api/v3/ticker/price?symbol=${symbol}`);
   const priceData = await priceRes.json();
   const currentPrice = parseFloat(priceData.price ?? '0');
 
