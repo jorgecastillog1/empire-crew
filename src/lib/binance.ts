@@ -3,10 +3,11 @@ import { logOrchestratorAction } from '@/lib/orchestrator';
 import crypto from 'crypto';
 
 // ============================================================
-// BINANCE — Conexión real a la API
+// BINANCE — Conexión directa (sin proxy)
 // ============================================================
 
-const BASE_URL = 'https://binance-proxy.trendtraderg11.workers.dev';
+const SPOT_URL = 'https://api.binance.com';
+const FUTURES_URL = 'https://fapi.binance.com';
 const API_KEY = process.env.BINANCE_API_KEY ?? '';
 const SECRET_KEY = process.env.BINANCE_SECRET_KEY ?? '';
 
@@ -18,7 +19,8 @@ async function binanceRequest(
   method: 'GET' | 'POST' | 'DELETE',
   endpoint: string,
   params: Record<string, any> = {},
-  signed = false
+  signed = false,
+  isFutures = false
 ): Promise<any> {
   let queryString = new URLSearchParams(params).toString();
 
@@ -28,7 +30,8 @@ async function binanceRequest(
     queryString += '&signature=' + sign(queryString);
   }
 
-  const url = BASE_URL + endpoint + (method === 'GET' && queryString ? '?' + queryString : '');
+  const baseUrl = isFutures ? FUTURES_URL : SPOT_URL;
+  const url = baseUrl + endpoint + (method === 'GET' && queryString ? '?' + queryString : '');
 
   const res = await fetch(url, {
     method,
@@ -60,14 +63,14 @@ export async function getPrices(symbols: string[]): Promise<Record<string, numbe
   return prices;
 }
 
-// ─── Balance de la cuenta ─────────────────────────────────────
+// ─── Balance de la cuenta (Spot) ──────────────────────────────
 export async function getAccountBalance(): Promise<Record<string, number>> {
   console.log('🔍 [SPOT] Iniciando getAccountBalance');
   console.log('🔑 [SPOT] API_KEY presente:', !!API_KEY);
   console.log('🔑 [SPOT] SECRET_KEY presente:', !!SECRET_KEY);
   
   try {
-    const data = await binanceRequest('GET', '/api/v3/account', {}, true);
+    const data = await binanceRequest('GET', '/api/v3/account', {}, true, false);
     console.log('✅ [SPOT] Respuesta completa de Binance:', JSON.stringify(data, null, 2));
     
     const balances: Record<string, number> = {};
@@ -79,11 +82,11 @@ export async function getAccountBalance(): Promise<Record<string, number>> {
     return balances;
   } catch (error: any) {
     console.error('❌ [SPOT] Error en getAccountBalance:', error.message);
-    if (error.response) console.error('Detalle respuesta:', error.response);
     return {};
   }
 }
-// ─── Balance de Futuros ─────────────────────────────────────
+
+// ─── Balance de Futuros ───────────────────────────────────────
 export async function getFuturesBalance(): Promise<Record<string, number>> {
   console.log('🔍 [FUTURES] Iniciando getFuturesBalance');
   console.log('🔑 [FUTURES] API_KEY presente:', !!API_KEY);
@@ -98,7 +101,7 @@ export async function getFuturesBalance(): Promise<Record<string, number>> {
     const timestamp = Date.now();
     let queryString = `timestamp=${timestamp}`;
     queryString += `&signature=${sign(queryString)}`;
-    const url = `https://binance-proxy.trendtraderg11.workers.dev/fapi/v2/account?${queryString}`;
+    const url = `${FUTURES_URL}/fapi/v2/account?${queryString}`;
     console.log('🌐 [FUTURES] URL de la petición:', url);
     
     const res = await fetch(url, {
@@ -125,18 +128,17 @@ export async function getFuturesBalance(): Promise<Record<string, number>> {
     return balances;
   } catch (error: any) {
     console.error('❌ [FUTURES] Excepción en getFuturesBalance:', error.message);
-    if (error.response) console.error('Detalle respuesta:', error.response);
     return {};
   }
 }
 
-// ─── Klines / Velas ──────────────────────────────────────────
+// ─── Klines / Velas (Spot) ───────────────────────────────────
 export async function getKlines(
   symbol: string,
   interval: '1m' | '5m' | '15m' | '1h' | '4h' | '1d' = '1h',
   limit = 100
 ): Promise<{ open: number; high: number; low: number; close: number; volume: number; timestamp: number }[]> {
-  const data = await binanceRequest('GET', '/api/v3/klines', { symbol, interval, limit });
+  const data = await binanceRequest('GET', '/api/v3/klines', { symbol, interval, limit }, false, false);
   return data.map((k: any[]) => ({
     timestamp: k[0],
     open: parseFloat(k[1]),
@@ -147,7 +149,7 @@ export async function getKlines(
   }));
 }
 
-// ─── Indicadores técnicos ─────────────────────────────────────
+// ─── Indicadores técnicos (sin cambios) ──────────────────────
 export function calcRSI(closes: number[], period = 14): number {
   if (closes.length < period + 1) return 50;
   let gains = 0, losses = 0;
@@ -174,7 +176,7 @@ export function calcMACD(closes: number[]): { macd: number; signal: number; hist
   const ema12 = calcEMA(closes, 12);
   const ema26 = calcEMA(closes, 26);
   const macd = ema12 - ema26;
-  const signal = macd * 0.2 + macd * 0.8; // simplificado
+  const signal = macd * 0.2 + macd * 0.8;
   return { macd, signal, histogram: macd - signal };
 }
 
@@ -185,7 +187,6 @@ export function calcBollinger(closes: number[], period = 20): { upper: number; m
   return { upper: middle + 2 * std, middle, lower: middle - 2 * std };
 }
 
-// ─── Análisis técnico completo ────────────────────────────────
 export async function analyzeSymbol(symbol: string): Promise<{
   symbol: string;
   price: number;
@@ -208,10 +209,7 @@ export async function analyzeSymbol(symbol: string): Promise<{
   const ema20 = calcEMA(closes, 20);
   const ema50 = calcEMA(closes, 50);
 
-  // Señal de trading
-  let buySignals = 0;
-  let sellSignals = 0;
-
+  let buySignals = 0, sellSignals = 0;
   if (rsi < 30) buySignals++;
   if (rsi > 70) sellSignals++;
   if (macd.histogram > 0) buySignals++;
@@ -232,12 +230,12 @@ export async function analyzeSymbol(symbol: string): Promise<{
   return result;
 }
 
-// ─── Funding rates (futuros) ──────────────────────────────────
+// ─── Funding rates (futuros) ─────────────────────────────────
 export async function getFundingRates(symbols: string[]): Promise<Record<string, number>> {
   const rates: Record<string, number> = {};
   for (const symbol of symbols) {
     try {
-      const res = await fetch('https://binance-proxy.trendtraderg11.workers.dev/fapi/v1/fundingRate?symbol=' + symbol + '&limit=1');
+      const res = await fetch(`${FUTURES_URL}/fapi/v1/fundingRate?symbol=${symbol}&limit=1`);
       const data = await res.json();
       rates[symbol] = parseFloat(data[0]?.fundingRate ?? '0');
     } catch { rates[symbol] = 0; }
@@ -245,7 +243,7 @@ export async function getFundingRates(symbols: string[]): Promise<Record<string,
   return rates;
 }
 
-// ─── Ejecutar orden ───────────────────────────────────────────
+// ─── Ejecutar orden (Spot) ───────────────────────────────────
 export async function placeOrder(
   symbol: string,
   side: 'BUY' | 'SELL',
@@ -258,8 +256,7 @@ export async function placeOrder(
     params.price = price;
     params.timeInForce = 'GTC';
   }
-
-  const order = await binanceRequest('POST', '/api/v3/order', params, true);
+  const order = await binanceRequest('POST', '/api/v3/order', params, true, false);
   await logOrchestratorAction('binance:order:' + side + ':' + symbol + ':' + quantity);
   await redis.lpush('trading:orders', JSON.stringify({ ...order, timestamp: Date.now() }));
   await redis.ltrim('trading:orders', 0, 199);
@@ -276,17 +273,17 @@ export async function placeFuturesOrder(
   price?: number
 ): Promise<any> {
   try {
-    // 1. Configurar apalancamiento
+    // Configurar apalancamiento
     const levTimestamp = Date.now();
     let levQuery = `symbol=${symbol}&leverage=${leverage}&timestamp=${levTimestamp}`;
     levQuery += '&signature=' + sign(levQuery);
-    await fetch('https://binance-proxy.trendtraderg11.workers.dev/fapi/v1/leverage', {
+    await fetch(`${FUTURES_URL}/fapi/v1/leverage`, {
       method: 'POST',
       headers: { 'X-MBX-APIKEY': API_KEY, 'Content-Type': 'application/x-www-form-urlencoded' },
       body: levQuery,
     });
 
-    // 2. Colocar orden
+    // Colocar orden
     const timestamp = Date.now();
     const params: Record<string, any> = { symbol, side, type, quantity };
     if (type === 'LIMIT' && price) { params.price = price; params.timeInForce = 'GTC'; }
@@ -294,7 +291,7 @@ export async function placeFuturesOrder(
     queryString += '&timestamp=' + timestamp;
     queryString += '&signature=' + sign(queryString);
 
-    const res = await fetch('https://binance-proxy.trendtraderg11.workers.dev/fapi/v1/order', {
+    const res = await fetch(`${FUTURES_URL}/fapi/v1/order`, {
       method: 'POST',
       headers: { 'X-MBX-APIKEY': API_KEY, 'Content-Type': 'application/x-www-form-urlencoded' },
       body: queryString,
@@ -316,13 +313,13 @@ export async function placeFuturesOrder(
   }
 }
 
-// ─── Órdenes abiertas ─────────────────────────────────────────
+// ─── Órdenes abiertas (Spot) ─────────────────────────────────
 export async function getOpenOrders(symbol?: string): Promise<any[]> {
   const params = symbol ? { symbol } : {};
-  return await binanceRequest('GET', '/api/v3/openOrders', params, true);
+  return await binanceRequest('GET', '/api/v3/openOrders', params, true, false);
 }
 
-// ─── Historial de órdenes ─────────────────────────────────────
+// ─── Historial de órdenes (Spot) ─────────────────────────────
 export async function getOrderHistory(symbol: string, limit = 20): Promise<any[]> {
-  return await binanceRequest('GET', '/api/v3/allOrders', { symbol, limit }, true);
+  return await binanceRequest('GET', '/api/v3/allOrders', { symbol, limit }, true, false);
 }
