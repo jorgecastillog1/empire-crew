@@ -6,7 +6,7 @@ import crypto from 'crypto';
 // BINANCE — Conexión real a la API
 // ============================================================
 
-const BASE_URL = 'https://api.binance.com';
+const BASE_URL = 'https://binance-proxy.trendraderg11.workers.dev';
 const API_KEY = process.env.BINANCE_API_KEY ?? '';
 const SECRET_KEY = process.env.BINANCE_SECRET_KEY ?? '';
 
@@ -98,7 +98,7 @@ export async function getFuturesBalance(): Promise<Record<string, number>> {
     const timestamp = Date.now();
     let queryString = `timestamp=${timestamp}`;
     queryString += `&signature=${sign(queryString)}`;
-    const url = `https://fapi.binance.com/fapi/v2/account?${queryString}`;
+    const url = `https://binance-proxy.trendraderg11.workers.dev/fapi/v2/account?${queryString}`;
     console.log('🌐 [FUTURES] URL de la petición:', url);
     
     const res = await fetch(url, {
@@ -237,7 +237,7 @@ export async function getFundingRates(symbols: string[]): Promise<Record<string,
   const rates: Record<string, number> = {};
   for (const symbol of symbols) {
     try {
-      const res = await fetch('https://fapi.binance.com/fapi/v1/fundingRate?symbol=' + symbol + '&limit=1');
+      const res = await fetch('https://binance-proxy.trendraderg11.workers.dev/fapi/v1/fundingRate?symbol=' + symbol + '&limit=1');
       const data = await res.json();
       rates[symbol] = parseFloat(data[0]?.fundingRate ?? '0');
     } catch { rates[symbol] = 0; }
@@ -280,7 +280,7 @@ export async function placeFuturesOrder(
     const levTimestamp = Date.now();
     let levQuery = `symbol=${symbol}&leverage=${leverage}&timestamp=${levTimestamp}`;
     levQuery += '&signature=' + sign(levQuery);
-    await fetch('https://fapi.binance.com/fapi/v1/leverage', {
+    await fetch('https://binance-proxy.trendraderg11.workers.dev/fapi/v1/leverage', {
       method: 'POST',
       headers: { 'X-MBX-APIKEY': API_KEY, 'Content-Type': 'application/x-www-form-urlencoded' },
       body: levQuery,
@@ -294,7 +294,7 @@ export async function placeFuturesOrder(
     queryString += '&timestamp=' + timestamp;
     queryString += '&signature=' + sign(queryString);
 
-    const res = await fetch('https://fapi.binance.com/fapi/v1/order', {
+    const res = await fetch('https://binance-proxy.trendraderg11.workers.dev/fapi/v1/order', {
       method: 'POST',
       headers: { 'X-MBX-APIKEY': API_KEY, 'Content-Type': 'application/x-www-form-urlencoded' },
       body: queryString,
