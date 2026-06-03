@@ -1,13 +1,11 @@
 // src/lib/marketing-automation.ts
-// Módulo de automatización de marketing - Sin dependencias de PDF (usa Markdown)
+// Módulo de automatización de marketing con subida a Cloudinary (sin sistema de archivos local)
 
 import { redis } from './redis';
 import { callLLM } from './orchestrator';
 import { executeTool } from './thoth';
 import { writeProof } from './omk';
 import { logOrchestratorAction } from './orchestrator';
-import fs from 'fs/promises';
-import path from 'path';
 
 // ============================================================
 // Tipos
@@ -33,9 +31,9 @@ export interface CampaignData {
   socialProof: string;
   urgentCallToAction: string;
   fullCopy: string;
-  leadMagnetMarkdown: string;  // Contenido del lead magnet en formato Markdown
+  leadMagnetUrl: string;      // URL en Cloudinary del lead magnet (Markdown o PDF)
+  funnelUrl: string;           // URL en Cloudinary del funnel HTML
   imageUrl: string;
-  funnelHtml: string;
   publishedAt: number;
   success: boolean;
   error?: string;
@@ -51,7 +49,50 @@ export interface MarketingCycleLog {
 }
 
 // ============================================================
-// Helper: Obtener settings
+// Configuración de Cloudinary (desde variables de entorno)
+// ============================================================
+
+const CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME || '';
+const API_KEY = process.env.CLOUDINARY_API_KEY || '';
+const API_SECRET = process.env.CLOUDINARY_API_SECRET || '';
+const UPLOAD_PRESET = 'empire_marketing_leadmagnets'; // el que creaste
+
+// ============================================================
+// Helper: Subir contenido a Cloudinary
+// ============================================================
+
+async function uploadToCloudinary(content: string, publicId: string, contentType: 'text/markdown' | 'text/html'): Promise<string> {
+  if (!CLOUD_NAME || !API_KEY || !API_SECRET) {
+    throw new Error('Cloudinary no configurado. Faltan variables de entorno.');
+  }
+
+  // Preparar el archivo como data URL
+  const mime = contentType === 'text/markdown' ? 'text/plain' : 'text/html';
+  const dataUri = `data:${mime};charset=utf-8,${encodeURIComponent(content)}`;
+
+  const formData = new FormData();
+  formData.append('file', dataUri);
+  formData.append('upload_preset', UPLOAD_PRESET);
+  formData.append('public_id', `marketing/${publicId}`);
+
+  const url = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/raw/upload`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Cloudinary error: ${response.status} ${errorText}`);
+  }
+
+  const data = await response.json();
+  return data.secure_url; // URL pública del archivo
+}
+
+// ============================================================
+// Helper: Obtener settings (para plataformas de afiliados)
 // ============================================================
 
 async function getSettings() {
@@ -160,16 +201,42 @@ async function generateCampaignContent(product: AffiliateProduct): Promise<{
 }
 
 // ============================================================
-// 4. Guardar lead magnet como archivo .md (en lugar de PDF)
+// 4. Generar funnel HTML a partir del copy
 // ============================================================
 
-async function saveLeadMagnet(markdown: string, productId: string): Promise<string> {
-  const filename = `leadmagnet-${productId}-${Date.now()}.md`;
-  const dir = path.join(process.cwd(), 'public', 'leadmagnets');
-  await fs.mkdir(dir, { recursive: true });
-  const filePath = path.join(dir, filename);
-  await fs.writeFile(filePath, markdown, 'utf-8');
-  return `/leadmagnets/${filename}`;
+function generateFunnelHtml(product: AffiliateProduct, content: {
+  hook: string;
+  fullCopy: string;
+  urgentCallToAction: string;
+  leadMagnetUrl: string;
+}): string {
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${product.name}</title>
+  <style>
+    body { font-family: Arial, sans-serif; line-height: 1.6; margin: 0; padding: 20px; background: #f4f4f4; }
+    .container { max-width: 800px; margin: auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+    h1 { color: #333; }
+    .hook { font-size: 1.5em; font-weight: bold; color: #e67e22; }
+    .cta { background: #e67e22; color: white; padding: 12px 24px; text-decoration: none; display: inline-block; border-radius: 5px; margin-top: 20px; }
+    .lead-magnet { background: #f9f9f9; padding: 15px; margin: 20px 0; border-left: 4px solid #e67e22; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="hook">${content.hook}</div>
+  <h1>${product.name}</h1>
+  <p>${content.fullCopy}</p>
+  <div class="lead-magnet">
+    <strong>📘 Bono exclusivo:</strong> Descarga nuestra guía gratuita <a href="${content.leadMagnetUrl}" target="_blank">aquí</a>.
+  </div>
+  <a href="${product.affiliateUrl}" class="cta" target="_blank">${content.urgentCallToAction}</a>
+</div>
+</body>
+</html>`;
 }
 
 // ============================================================
@@ -201,27 +268,14 @@ async function publishToTelegram(message: string): Promise<boolean> {
 
 async function publishCampaignToAllNetworks(campaign: CampaignData): Promise<number> {
   let publishedCount = 0;
-  const message = `${campaign.hook}\n\n${campaign.fullCopy}\n\n${campaign.urgentCallToAction}\n\n🔗 ${campaign.product.affiliateUrl}`;
+  const message = `${campaign.hook}\n\n${campaign.fullCopy}\n\n${campaign.urgentCallToAction}\n\n🔗 ${campaign.product.affiliateUrl}\n\n📘 Lead Magnet: ${campaign.leadMagnetUrl}\n📄 Funnel: ${campaign.funnelUrl}`;
   if (await publishToTelegram(message)) publishedCount++;
   // Aquí se pueden añadir Twitter, Facebook, etc. según settings
   return publishedCount;
 }
 
 // ============================================================
-// 7. Guardar funnel HTML
-// ============================================================
-
-async function saveFunnelHtml(html: string, productId: string): Promise<string> {
-  const filename = `funnel-${productId}-${Date.now()}.html`;
-  const dir = path.join(process.cwd(), 'public', 'funnels');
-  await fs.mkdir(dir, { recursive: true });
-  const filePath = path.join(dir, filename);
-  await fs.writeFile(filePath, html, 'utf-8');
-  return `/funnels/${filename}`;
-}
-
-// ============================================================
-// 8. Ciclo principal
+// 7. Ciclo principal
 // ============================================================
 
 export async function runMarketingCycle(): Promise<MarketingCycleLog> {
@@ -254,27 +308,53 @@ export async function runMarketingCycle(): Promise<MarketingCycleLog> {
 
     for (const product of bestProducts) {
       try {
+        // 1. Generar contenido con IA
         const content = await generateCampaignContent(product);
-        const leadMagnetUrl = await saveLeadMagnet(content.leadMagnetMarkdown, product.id);
-        const imageUrl = await searchPexelsImage(product.name);
-        const funnelHtml = `<html><body><h1>${product.name}</h1><p>${content.fullCopy}</p><a href="${product.affiliateUrl}">Comprar ahora</a><p>Lead Magnet: <a href="${leadMagnetUrl}">Descargar guía</a></p></body></html>`;
-        const funnelUrl = await saveFunnelHtml(funnelHtml, product.id);
 
+        // 2. Subir lead magnet a Cloudinary
+        const leadMagnetUrl = await uploadToCloudinary(
+          content.leadMagnetMarkdown,
+          `leadmagnet_${product.id}_${Date.now()}`,
+          'text/markdown'
+        );
+
+        // 3. Generar funnel HTML y subirlo a Cloudinary
+        const funnelHtml = generateFunnelHtml(product, {
+          hook: content.hook,
+          fullCopy: content.fullCopy,
+          urgentCallToAction: content.urgentCallToAction,
+          leadMagnetUrl,
+        });
+        const funnelUrl = await uploadToCloudinary(
+          funnelHtml,
+          `funnel_${product.id}_${Date.now()}`,
+          'text/html'
+        );
+
+        // 4. Buscar imagen en Pexels
+        const imageUrl = await searchPexelsImage(product.name);
+
+        // 5. Construir objeto campaña
         const campaign: CampaignData = {
           product,
-          ...content,
-          leadMagnetMarkdown: content.leadMagnetMarkdown,
+          hook: content.hook,
+          uniqueValueProp: content.uniqueValueProp,
+          socialProof: content.socialProof,
+          urgentCallToAction: content.urgentCallToAction,
+          fullCopy: content.fullCopy,
+          leadMagnetUrl,
+          funnelUrl,
           imageUrl,
-          funnelHtml: funnelUrl,
           publishedAt: Date.now(),
           success: true,
         };
 
+        // 6. Publicar en redes
         const pubCount = await publishCampaignToAllNetworks(campaign);
         published += pubCount;
         campaignsGenerated++;
 
-        // Guardar campaña en Redis
+        // 7. Guardar campaña en Redis
         await redis.lpush('empire:marketing:campaigns', JSON.stringify(campaign));
         await redis.ltrim('empire:marketing:campaigns', 0, 99);
       } catch (err: any) {
