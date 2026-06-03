@@ -1,5 +1,5 @@
 // src/lib/marketing-automation.ts
-// Módulo de automatización de marketing con subida a Cloudinary (sin sistema de archivos local)
+// Módulo de automatización de marketing con subida a Cloudinary (usando Blob)
 
 import { redis } from './redis';
 import { callLLM } from './orchestrator';
@@ -31,7 +31,7 @@ export interface CampaignData {
   socialProof: string;
   urgentCallToAction: string;
   fullCopy: string;
-  leadMagnetUrl: string;      // URL en Cloudinary del lead magnet (Markdown o PDF)
+  leadMagnetUrl: string;      // URL en Cloudinary del lead magnet (Markdown)
   funnelUrl: string;           // URL en Cloudinary del funnel HTML
   imageUrl: string;
   publishedAt: number;
@@ -55,10 +55,10 @@ export interface MarketingCycleLog {
 const CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME || '';
 const API_KEY = process.env.CLOUDINARY_API_KEY || '';
 const API_SECRET = process.env.CLOUDINARY_API_SECRET || '';
-const UPLOAD_PRESET = 'empire_marketing_leadmagnets'; // el que creaste
+const UPLOAD_PRESET = 'empire_marketing_leadmagnets';
 
 // ============================================================
-// Helper: Subir contenido a Cloudinary
+// Helper: Subir contenido a Cloudinary usando Blob
 // ============================================================
 
 async function uploadToCloudinary(content: string, publicId: string, contentType: 'text/markdown' | 'text/html'): Promise<string> {
@@ -66,12 +66,16 @@ async function uploadToCloudinary(content: string, publicId: string, contentType
     throw new Error('Cloudinary no configurado. Faltan variables de entorno.');
   }
 
-  // Preparar el archivo como data URL
-  const mime = contentType === 'text/markdown' ? 'text/plain' : 'text/html';
-  const dataUri = `data:${mime};charset=utf-8,${encodeURIComponent(content)}`;
-
+  // Determinar la extensión y el MIME type correcto
+  const extension = contentType === 'text/markdown' ? 'md' : 'html';
+  const mimeType = contentType === 'text/markdown' ? 'text/plain' : 'text/html';
+  
+  // Crear un Blob a partir del contenido
+  const blob = new Blob([content], { type: mimeType });
+  
+  // Crear FormData y adjuntar el blob como un archivo
   const formData = new FormData();
-  formData.append('file', dataUri);
+  formData.append('file', blob, `${publicId}.${extension}`);
   formData.append('upload_preset', UPLOAD_PRESET);
   formData.append('public_id', `marketing/${publicId}`);
 
@@ -88,7 +92,7 @@ async function uploadToCloudinary(content: string, publicId: string, contentType
   }
 
   const data = await response.json();
-  return data.secure_url; // URL pública del archivo
+  return data.secure_url;
 }
 
 // ============================================================
@@ -311,7 +315,7 @@ export async function runMarketingCycle(): Promise<MarketingCycleLog> {
         // 1. Generar contenido con IA
         const content = await generateCampaignContent(product);
 
-        // 2. Subir lead magnet a Cloudinary
+        // 2. Subir lead magnet a Cloudinary (Markdown)
         const leadMagnetUrl = await uploadToCloudinary(
           content.leadMagnetMarkdown,
           `leadmagnet_${product.id}_${Date.now()}`,
