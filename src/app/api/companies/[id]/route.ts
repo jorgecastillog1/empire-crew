@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCompany, addAgentToCompany, Agent } from '@/lib/db';
+import { getCompany, addAgentToCompany, updateCompany, Agent } from '@/lib/db';
 
+// Obtener una empresa específica por su ID
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -17,6 +18,7 @@ export async function GET(
   }
 }
 
+// Añadir un nuevo agente a una empresa
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -40,5 +42,26 @@ export async function POST(
     return NextResponse.json(newAgent, { status: 201 });
   } catch (error) {
     return NextResponse.json({ error: 'Error al crear agente' }, { status: 500 });
+  }
+}
+
+// NUEVO: Actualizar cualquier campo de una empresa (ej: enabled, nombre, presupuesto, etc.)
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+  try {
+    const body = await request.json();
+    // body puede contener { enabled: false } o cualquier otro campo a actualizar
+    const updatedCompany = await updateCompany(id, body);
+    
+    if (!updatedCompany) {
+      return NextResponse.json({ error: 'Empresa no encontrada' }, { status: 404 });
+    }
+    
+    return NextResponse.json(updatedCompany);
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

@@ -15,11 +15,47 @@ export default function GlobalDashboard() {
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [connected, setConnected] = useState(false);
   const [pulse, setPulse] = useState(false);
+  const [updatingCompanyId, setUpdatingCompanyId] = useState<string | null>(null); // ← NUEVO: para mostrar carga
+
+  // Cargar empresas al inicio
+  const loadCompanies = async () => {
+    try {
+      const res = await fetch('/api/companies');
+      const data = await res.json();
+      setCompanies(data);
+    } catch (error) {
+      console.error('Error al cargar empresas:', error);
+    }
+  };
+
+  // Función para cambiar el estado de encendido/apagado de una empresa
+  const toggleCompanyEnabled = async (companyId: string, currentEnabled: boolean | undefined) => {
+    setUpdatingCompanyId(companyId);
+    const newEnabled = !(currentEnabled ?? true); // Si no existe enabled, asumimos true
+    try {
+      const res = await fetch(`/api/companies/${companyId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: newEnabled }),
+      });
+      if (res.ok) {
+        // Recargar la lista de empresas para reflejar el cambio
+        await loadCompanies();
+      } else {
+        console.error('Error al actualizar estado');
+      }
+    } catch (error) {
+      console.error('Error de red:', error);
+    } finally {
+      setUpdatingCompanyId(null);
+    }
+  };
 
   useEffect(() => {
-    fetch('/api/companies').then(r => r.json()).then(setCompanies).catch(() => {});
+    loadCompanies();
   }, []);
 
+  // SSE (EventSource) para datos en tiempo real
   useEffect(() => {
     const es = new EventSource('/api/sse');
     es.addEventListener('ecosystem', (e) => {
@@ -153,7 +189,7 @@ export default function GlobalDashboard() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Empresas */}
+        {/* Empresas — tarjetas con botón de encendido/apagado */}
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
           <h2 className="text-sm font-semibold text-slate-300 mb-4 flex items-center gap-2">
             <Building2 className="w-4 h-4 text-cyan-400" /> Subsidiarias Activas
@@ -162,15 +198,30 @@ export default function GlobalDashboard() {
             {companies.length === 0 && (
               <p className="text-slate-500 text-sm text-center py-4">No hay empresas. Crea una en Instanciar Empresa.</p>
             )}
-            {companies.map((c) => (
-              <a key={c.id} href={'/companies/' + c.id} className="flex justify-between items-center p-3 bg-slate-800/50 rounded-lg hover:bg-slate-800 transition-colors group">
-                <div>
-                  <p className="text-sm font-medium text-slate-200 group-hover:text-cyan-400 transition-colors">{c.name}</p>
-                  <p className="text-xs text-slate-500">{c.type} · {c.agents?.length ?? 0} agentes</p>
+            {companies.map((c) => {
+              const isEnabled = c.enabled !== undefined ? c.enabled : true; // si no existe, asumimos encendida
+              const isUpdating = updatingCompanyId === c.id;
+              return (
+                <div key={c.id} className="flex justify-between items-center p-3 bg-slate-800/50 rounded-lg hover:bg-slate-800 transition-colors group">
+                  <a href={`/companies/${c.id}`} className="flex-1">
+                    <p className="text-sm font-medium text-slate-200 group-hover:text-cyan-400 transition-colors">{c.name}</p>
+                    <p className="text-xs text-slate-500">{c.type} · {c.agents?.length ?? 0} agentes</p>
+                  </a>
+                  {/* Botón de encendido/apagado */}
+                  <button
+                    onClick={() => toggleCompanyEnabled(c.id, c.enabled)}
+                    disabled={isUpdating}
+                    className={`ml-3 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      isEnabled
+                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30'
+                        : 'bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30'
+                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                  >
+                    {isUpdating ? '...' : (isEnabled ? '🔛 Encendida' : '🔒 Apagada')}
+                  </button>
                 </div>
-                <span className="text-xs px-2 py-1 bg-emerald-500/10 text-emerald-400 rounded-full">Activa</span>
-              </a>
-            ))}
+              );
+            })}
           </div>
         </div>
 

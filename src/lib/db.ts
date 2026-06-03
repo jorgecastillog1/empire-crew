@@ -1,7 +1,8 @@
 import { redis, KEY } from '@/lib/redis';
-import { Company, Agent } from '@/types/company';  // ← import unificado
+import { Company, Agent } from '@/types/company';
 
-// Nota: las empresas por defecto ahora se definen con el tipo Company
+// Empresas de ejemplo que aparecen la primera vez que instalas el sistema
+// Les añadimos enabled: true para que estén encendidas por defecto
 const DEFAULT_COMPANIES: Company[] = [
   {
     id: 'alpha-trading',
@@ -13,7 +14,8 @@ const DEFAULT_COMPANIES: Company[] = [
     agents: [
       { name: 'Agent-Funding-Bot', role: 'Arbitraje de Tasas', status: 'executing', model: 'GPT-4o' },
       { name: 'Agent-Trend-Alpha', role: 'Análisis Técnico Macroscópico', status: 'analyzing', model: 'Claude 3.5 Sonnet' }
-    ]
+    ],
+    enabled: true,  // ← NUEVO
   },
   {
     id: 'cine-media',
@@ -25,7 +27,8 @@ const DEFAULT_COMPANIES: Company[] = [
     agents: [
       { name: 'Agent-Script-Writer', role: 'Generación de Guiones', status: 'idle', model: 'Claude 3.5 Sonnet' },
       { name: 'Agent-Story-Board', role: 'Orquestación de Prompts Visuales', status: 'executing', model: 'GPT-4o' }
-    ]
+    ],
+    enabled: true,  // ← NUEVO
   },
   {
     id: 'marketing-pro',
@@ -37,7 +40,8 @@ const DEFAULT_COMPANIES: Company[] = [
     agents: [
       { name: 'Agent-Copy-Ads', role: 'Optimización de Copys', status: 'analyzing', model: 'GPT-4o' },
       { name: 'Agent-Funnel-Analytic', role: 'Asignación de Presupuesto en RRSS', status: 'idle', model: 'Llama 3' }
-    ]
+    ],
+    enabled: true,  // ← NUEVO
   }
 ];
 
@@ -84,7 +88,8 @@ export async function saveCompany(company: Omit<Company, 'metric' | 'agents'>): 
     metric: '0.00% CTR / ROI',
     agents: [
       { name: 'Agent-Core-Bot', role: 'Supervisor de Entorno', status: 'idle', model: 'GPT-4o' }
-    ]
+    ],
+    enabled: true,  // ← NUEVO: las nuevas empresas se crean encendidas
   };
   await saveCompanyToRedis(newCompany);
   return newCompany;
@@ -110,11 +115,4 @@ export async function updateCompany(id: string, updates: Partial<Company>): Prom
   return updated;
 }
 
-// Re-exportar tipos para mantener compatibilidad con imports existentes
 export type { Company, Agent };
-
-// ──────────────────────────────────────────────────────────
-// NOTA: la función recordAgentEvent ha sido eliminada porque
-// ya existe en @/lib/agentMonitor.ts (versión más completa).
-// No eliminar nada más.
-// ──────────────────────────────────────────────────────────

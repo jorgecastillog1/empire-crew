@@ -15,6 +15,7 @@ export interface Company {
   sector: string;
   metric: string;
   agents: Agent[];
+  enabled?: boolean;  // ← NUEVO: true = encendida, false = apagada. Si no existe, se trata como true.
 }
 
 export interface ServiceHealth {
@@ -25,7 +26,7 @@ export interface ServiceHealth {
 }
 
 export interface Diagnosis {
-  overall: 'healthy' | 'degraded' | 'down' | 'critical';
+  overall: 'healthy' | 'degraded' | 'down';
   services: ServiceHealth[];
 }
 

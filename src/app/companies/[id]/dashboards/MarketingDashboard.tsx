@@ -1,5 +1,7 @@
 'use client';
 // ─── MarketingDashboard.tsx ───────────────────────────────────────────────────
+// MODIFICADO: Añadida sección de Automatización (ciclo automático, estado, botón forzar)
+// Se mantienen todas las herramientas manuales (copy, SEO, afiliados).
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Company } from '@/types/company';
@@ -7,7 +9,24 @@ import { getNextGroqModel } from './TradingDashboard';
 
 interface Props { company: Company; }
 
+// Interfaz para los datos de estado de automatización
+interface AutomationStatus {
+  lastCycle: {
+    timestamp: number;
+    productsFound: number;
+    productsFiltered: number;
+    campaignsGenerated: number;
+    published: number;
+    errors: string[];
+  } | null;
+  lastSuccess: boolean;
+  cycles: any[];
+  recentCampaigns: any[];
+  recentAgentLogs: any[];
+}
+
 export default function MarketingDashboard({ company }: Props) {
+  // ========== Estado existente ==========
   const [affiliateSearching, setAffiliateSearching] = useState(false);
   const [affiliateResults, setAffiliateResults]     = useState<string[]>([]);
   const [seoQuery, setSeoQuery]   = useState('');
@@ -19,7 +38,18 @@ export default function MarketingDashboard({ company }: Props) {
   const [robotLogs, setRobotLogs] = useState<any[]>([]);
   const mountedRef = useRef(true);
 
-  // ─── Carga de logs de robots (persiste entre paneles) ─────────────────────
+  // ========== NUEVO: Estado para automatización ==========
+  const [automationStatus, setAutomationStatus] = useState<AutomationStatus>({
+    lastCycle: null,
+    lastSuccess: false,
+    cycles: [],
+    recentCampaigns: [],
+    recentAgentLogs: [],
+  });
+  const [statusLoading, setStatusLoading] = useState(true);
+  const [forceCycleLoading, setForceCycleLoading] = useState(false);
+
+  // ========== Funciones existentes ==========
   const fetchRobotLogs = useCallback(async () => {
     try {
       const res = await fetch('/api/robot?action=log');
@@ -40,7 +70,6 @@ export default function MarketingDashboard({ company }: Props) {
     };
   }, [fetchRobotLogs]);
 
-  // ─── Generar Copy ─────────────────────────────────────────────────────────
   const generateCopy = async () => {
     if (!copyTopic.trim()) return;
     setCopyLoading(true); setCopyResult('');
@@ -77,7 +106,6 @@ Usa sesgos cognitivos: reciprocidad, escasez, prueba social, autoridad. Máximo 
     }
   };
 
-  // ─── SEO Research ─────────────────────────────────────────────────────────
   const runSEO = async () => {
     if (!seoQuery.trim()) return;
     setSeoLoading(true); setSeoResults('');
@@ -109,7 +137,6 @@ Responde SOLO con este JSON (sin markdown, sin explicaciones):
       const data = await res.json();
       if (data.error) throw new Error(data.error);
 
-      // Intentar parsear JSON
       try {
         const clean = (data.response ?? '').replace(/```json|```/g, '').trim();
         const parsed = JSON.parse(clean);
@@ -124,7 +151,6 @@ Responde SOLO con este JSON (sin markdown, sin explicaciones):
     }
   };
 
-  // ─── Buscar afiliados ─────────────────────────────────────────────────────
   const searchAffiliates = async () => {
     setAffiliateSearching(true);
     try {
@@ -146,10 +172,69 @@ Responde SOLO con este JSON (sin markdown, sin explicaciones):
     }
   };
 
+  // ========== NUEVAS FUNCIONES PARA AUTOMATIZACIÓN ==========
+  const fetchAutomationStatus = useCallback(async () => {
+    try {
+      const res = await fetch('/api/marketing/agent-status');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setAutomationStatus({
+            lastCycle: data.lastCycle,
+            lastSuccess: data.lastSuccess,
+            cycles: data.cycles || [],
+            recentCampaigns: data.recentCampaigns || [],
+            recentAgentLogs: data.recentAgentLogs || [],
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error al obtener estado de automatización:', error);
+    } finally {
+      setStatusLoading(false);
+    }
+  }, []);
+
+  const forceCycle = async () => {
+    const secret = process.env.NEXT_PUBLIC_CRON_SECRET;
+    if (!secret) {
+      alert('⚠️ No se ha configurado la variable NEXT_PUBLIC_CRON_SECRET. El botón no funcionará.');
+      return;
+    }
+    setForceCycleLoading(true);
+    try {
+      const res = await fetch(`/api/marketing/cycle?secret=${secret}`);
+      const data = await res.json();
+      if (data.success) {
+        alert(`✅ Ciclo forzado exitosamente. Campañas generadas: ${data.cycleLog.campaignsGenerated}`);
+        await fetchAutomationStatus(); // refrescar estado
+      } else {
+        alert(`❌ Error: ${data.error}`);
+      }
+    } catch (error: any) {
+      alert(`❌ Error de red: ${error.message}`);
+    } finally {
+      setForceCycleLoading(false);
+    }
+  };
+
+  // Cargar estado al montar y refrescar cada 30 segundos
+  useEffect(() => {
+    fetchAutomationStatus();
+    const interval = setInterval(fetchAutomationStatus, 30_000);
+    return () => clearInterval(interval);
+  }, [fetchAutomationStatus]);
+
+  // Helper para formatear timestamp
+  const formatDate = (ts: number) => {
+    if (!ts) return 'Nunca';
+    return new Date(ts).toLocaleString('es-CO');
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-      {/* ─── KPIs ─────────────────────────────────────────────────────────── */}
+      {/* ─── KPIs (sin cambios) ───────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
         {[
           { label: 'Ventas Hoy',    value: '$0.00', color: '#4f8ef7' },
@@ -164,7 +249,96 @@ Responde SOLO con este JSON (sin markdown, sin explicaciones):
         ))}
       </div>
 
-      {/* ─── Generador de Copy ────────────────────────────────────────────── */}
+      {/* ─── NUEVA SECCIÓN: AUTOMATIZACIÓN DE MARKETING ───────────────────── */}
+      <div style={{ background: '#0d1117', border: '1px solid rgba(0,200,150,0.3)', borderRadius: 12, padding: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#00c896' }}>🤖 Automatización 24/7 — Agentes trabajando automáticamente</div>
+          <button
+            onClick={forceCycle}
+            disabled={forceCycleLoading}
+            style={{
+              padding: '6px 16px',
+              borderRadius: 8,
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: 12,
+              fontWeight: 700,
+              background: forceCycleLoading ? '#1e2433' : '#f0b429',
+              color: forceCycleLoading ? '#8b949e' : '#000',
+            }}
+          >
+            {forceCycleLoading ? '⏳ Forzando...' : '⚡ Forzar ciclo ahora'}
+          </button>
+        </div>
+
+        {statusLoading ? (
+          <div style={{ textAlign: 'center', padding: 20, color: '#8b949e' }}>Cargando estado de automatización...</div>
+        ) : (
+          <>
+            {/* Estado del último ciclo */}
+            <div style={{ background: '#161b22', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#e6edf3', marginBottom: 6 }}>📊 Último ciclo automático</div>
+              {automationStatus.lastCycle ? (
+                <div style={{ fontSize: 11, color: '#8b949e', display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6 }}>
+                  <span>🕒 Fecha: {formatDate(automationStatus.lastCycle.timestamp)}</span>
+                  <span>🔍 Productos encontrados: {automationStatus.lastCycle.productsFound}</span>
+                  <span>🎯 Productos filtrados: {automationStatus.lastCycle.productsFiltered}</span>
+                  <span>📢 Campañas generadas: {automationStatus.lastCycle.campaignsGenerated}</span>
+                  <span>📤 Publicaciones: {automationStatus.lastCycle.published}</span>
+                  <span style={{ color: automationStatus.lastCycle.errors.length > 0 ? '#ff5050' : '#00c896' }}>
+                    ⚠️ Errores: {automationStatus.lastCycle.errors.length}
+                  </span>
+                </div>
+              ) : (
+                <div style={{ fontSize: 11, color: '#8b949e' }}>Aún no se ha ejecutado ningún ciclo automático. El primer ciclo se lanzará según el cron (cada 4 horas).</div>
+              )}
+            </div>
+
+            {/* Últimas campañas generadas */}
+            {automationStatus.recentCampaigns.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#e6edf3', marginBottom: 6 }}>📋 Últimas campañas generadas</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {automationStatus.recentCampaigns.slice(0, 3).map((camp, idx) => (
+                    <div key={idx} style={{ background: '#0d1117', border: '1px solid #1e2433', borderRadius: 8, padding: 8 }}>
+                      <div style={{ fontSize: 12, color: '#c9d1d9' }}>{camp.product?.name || 'Producto'}</div>
+                      <div style={{ fontSize: 10, color: '#8b949e', wordBreak: 'break-all' }}>
+                        {camp.fullCopy?.substring(0, 100)}...
+                      </div>
+                      {camp.funnelHtml && (
+                        <a href={camp.funnelHtml} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, color: '#00c896' }}>
+                          Ver funnel →
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Logs recientes de agentes (solo marketing) */}
+            {automationStatus.recentAgentLogs.length > 0 && (
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#e6edf3', marginBottom: 6 }}>📡 Actividad reciente de agentes</div>
+                <div style={{ maxHeight: 100, overflowY: 'auto', fontSize: 10, color: '#8b949e' }}>
+                  {automationStatus.recentAgentLogs.map((log, idx) => (
+                    <div key={idx} style={{ padding: '4px 0', borderBottom: '1px solid #1e2433' }}>
+                      {log.action}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Nota sobre el cron */}
+            <div style={{ marginTop: 12, fontSize: 10, color: '#4f8ef7', textAlign: 'center', borderTop: '1px solid #1e2433', paddingTop: 8 }}>
+              ⏰ Ciclo automático programado cada 4 horas (configurable en cron-job.org)
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* ─── Generador de Copy (manual, intacto) ────────────────────────────── */}
       <div style={{ background: '#0d1117', border: '1px solid rgba(79,142,247,0.2)', borderRadius: 12, padding: 16 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: '#e6edf3', marginBottom: 4 }}>✍️ Agent-Neuro-Copywriter</div>
         <div style={{ fontSize: 11, color: '#8b949e', marginBottom: 12 }}>Genera copies de alta conversión con neuromarketing</div>
@@ -191,7 +365,7 @@ Responde SOLO con este JSON (sin markdown, sin explicaciones):
         )}
       </div>
 
-      {/* ─── SEO Research ─────────────────────────────────────────────────── */}
+      {/* ─── SEO Research (manual, intacto) ─────────────────────────────────── */}
       <div style={{ background: '#0d1117', border: '1px solid rgba(79,142,247,0.2)', borderRadius: 12, padding: 16 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: '#e6edf3', marginBottom: 4 }}>🔍 Agent-SEO-Dominator</div>
         <div style={{ fontSize: 11, color: '#8b949e', marginBottom: 12 }}>Keyword research con volumen, dificultad e intención de búsqueda</div>
@@ -218,7 +392,7 @@ Responde SOLO con este JSON (sin markdown, sin explicaciones):
         )}
       </div>
 
-      {/* ─── Funnel + Afiliados ───────────────────────────────────────────── */}
+      {/* ─── Funnel + Afiliados (manual, intacto) ───────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         <div style={{ background: '#0d1117', border: '1px solid #1e2433', borderRadius: 12, padding: 16 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: '#e6edf3', marginBottom: 12 }}>📊 Funnel de Conversión</div>
@@ -265,7 +439,7 @@ Responde SOLO con este JSON (sin markdown, sin explicaciones):
         </div>
       </div>
 
-      {/* ─── Actividad robots ─────────────────────────────────────────────── */}
+      {/* ─── Actividad robots (existente, intacto) ─────────────────────────── */}
       {robotLogs.length > 0 && (
         <div style={{ background: '#0d1117', border: '1px solid #1e2433', borderRadius: 12, padding: 16 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: '#e6edf3', marginBottom: 12 }}>🤖 Actividad de Robots de Marketing</div>

@@ -8,6 +8,7 @@
 //   5. Error handling en TradingDashboard.runCycle y BookmapPanel
 //   6. EmpireFactory3DToggle lazy-loaded (solo cuando el usuario lo pide)
 //   7. Código ~40% más corto gracias a la modularización
+//   8. NUEVO: Botón de encendido/apagado en la cabecera (Paso 5)
 
 import { useParams, useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
@@ -216,16 +217,40 @@ export default function CompanyDashboard() {
   const id = params?.id as string;
   const { company, diagnosis, logs, tradingMetrics, loading, error, refetch } = useCompanyData(id);
   const [allCompanies, setAllCompanies] = useState<any[]>([]);
+  const [updatingEnabled, setUpdatingEnabled] = useState(false); // ← NUEVO: para mostrar carga al cambiar estado
   useEffect(() => {
-  fetch('/api/companies').then(r => r.json()).then(data => {
-    if (Array.isArray(data)) setAllCompanies(data);
-  }).catch(() => {});
+    fetch('/api/companies').then(r => r.json()).then(data => {
+      if (Array.isArray(data)) setAllCompanies(data);
+    }).catch(() => {});
   }, []);
   const [refreshKey, setRefreshKey] = useState(0);
   const [showAgentForm, setShowAgentForm] = useState(false);
   const [agentForm, setAgentForm] = useState({ name: '', role: '', model: 'llama-3.3-70b-versatile' });
   const [saving, setSaving] = useState(false);
   const cfg = company ? (TYPE_CONFIG[company.type] ?? DEFAULT_THEME) : DEFAULT_THEME;
+
+  // ─── NUEVO: Función para cambiar el estado enabled de la empresa actual ───
+  const toggleCompanyEnabled = async () => {
+    if (!company) return;
+    setUpdatingEnabled(true);
+    const newEnabled = !(company.enabled ?? true);
+    try {
+      const res = await fetch(`/api/companies/${company.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: newEnabled }),
+      });
+      if (res.ok) {
+        await refetch(); // Recargar los datos de la empresa
+      } else {
+        console.error('Error al actualizar estado');
+      }
+    } catch (error) {
+      console.error('Error de red:', error);
+    } finally {
+      setUpdatingEnabled(false);
+    }
+  };
 
   const addAgent = async (e: React.FormEvent) => {
     e.preventDefault(); setSaving(true);
@@ -270,10 +295,12 @@ export default function CompanyDashboard() {
     agents: c.agents.length,
   }));
 
+  const isCompanyEnabled = company.enabled !== undefined ? company.enabled : true;
+
   return (
     <div style={{ padding: '24px clamp(12px, 4vw, 32px)', background: '#010409', minHeight: '100vh', color: '#e6edf3' }}>
 
-      {/* Header */}
+      {/* Header con botón de encendido/apagado NUEVO */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 32, paddingBottom: 24, borderBottom: `1px solid ${cfg.border}`, flexWrap: 'wrap', gap: 16 }}>
         <div>
           <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 2, color: cfg.color, background: cfg.bg, border: `1px solid ${cfg.border}`, padding: '4px 12px', borderRadius: 6 }}>
@@ -287,7 +314,22 @@ export default function CompanyDashboard() {
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          {/* 🏭 Botón Vista 3D — lazy load */}
+          {/* Botón de encendido/apagado NUEVO */}
+          <button
+            onClick={toggleCompanyEnabled}
+            disabled={updatingEnabled}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              background: isCompanyEnabled ? 'rgba(0,200,150,0.15)' : 'rgba(255,80,80,0.15)',
+              border: `1px solid ${isCompanyEnabled ? '#00c896' : '#ff5050'}`,
+              color: isCompanyEnabled ? '#00c896' : '#ff5050',
+              padding: '8px 16px', borderRadius: 8,
+              cursor: 'pointer', fontSize: 12, fontWeight: 700,
+              transition: 'all 0.2s',
+            }}
+          >
+            {updatingEnabled ? '...' : (isCompanyEnabled ? '🔛 Encendida' : '🔒 Apagada')}
+          </button>
           <EmpireFactory3DToggle
             companies={factoryNodes}
             onSelectCompany={(cid: string) => router.push(`/companies/${cid}`)}
@@ -306,29 +348,43 @@ export default function CompanyDashboard() {
         </div>
       </div>
 
-      {/* Dashboard por tipo (los sub-dashboards de Cine y Marketing se mantienen igual) */}
-      {company.type === 'trading' && (
-        <TradingDashboard key={refreshKey} company={company} metrics={tradingMetrics} refetch={refetch} />
-    )}
-    {company.type === 'cinematography' && (
-      <CineDashboard key={refreshKey} company={company} />
-    )}
-    {company.type === 'marketing' && (
-      <MarketingDashboard key={refreshKey} company={company} />
-    )}
+      {/* Dashboard por tipo (los sub-dashboards de Cine y Marketing se mantienen igual) 
+          Si la empresa está apagada, mostramos un mensaje en lugar de los dashboards */}
+      {!isCompanyEnabled ? (
+        <div style={{ background: '#0d1117', border: '1px solid #ff5050', borderRadius: 12, padding: 32, textAlign: 'center' }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
+          <h2 style={{ fontSize: 20, fontWeight: 700, color: '#ff5050', marginBottom: 8 }}>Empresa Apagada</h2>
+          <p style={{ color: '#8b949e', fontSize: 14 }}>
+            Esta subsidiaria está actualmente apagada. Los agentes no ejecutan tareas y no se consumen recursos de API.
+            Para reactivarla, haz clic en el botón "Encendida" en la esquina superior derecha.
+          </p>
+        </div>
+      ) : (
+        <>
+          {company.type === 'trading' && (
+            <TradingDashboard key={refreshKey} company={company} metrics={tradingMetrics} refetch={refetch} />
+          )}
+          {company.type === 'cinematography' && (
+            <CineDashboard key={refreshKey} company={company} />
+          )}
+          {company.type === 'marketing' && (
+            <MarketingDashboard key={refreshKey} company={company} />
+          )}
+        </>
+      )}
 
-      {/* Tiempo real */}
+      {/* Tiempo real (si la empresa está apagada, igual mostramos salud y logs? Sí, para diagnóstico) */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16, marginTop: 24 }}>
         <HealthPanel diagnosis={diagnosis} />
         <LogsPanel logs={logs} />
       </div>
 
-      {/* Copiloto */}
+      {/* Copiloto (también visible aunque apagada, para consultas) */}
       <div style={{ marginTop: 24 }}>
         <CopilotPanel company={company} />
       </div>
 
-      {/* Consola de Agentes */}
+      {/* Consola de Agentes (visible aunque apagada, pero se pueden ver los agentes) */}
       <div style={{ marginTop: 24 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
           <h2 style={{ fontSize: 16, fontWeight: 700, color: '#e6edf3', margin: 0 }}>
