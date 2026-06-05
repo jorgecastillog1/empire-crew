@@ -1,0 +1,43 @@
+name: 🎬 Build Marketing Video
+
+on:
+  workflow_dispatch:
+    inputs:
+      jobData:
+        description: 'Datos del video (JSON)'
+        required: true
+
+jobs:
+  build-video:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Download assets
+        run: |
+          mkdir assets
+          echo '${{ github.event.inputs.jobData }}' > job-data.json
+          # Por ahora solo imprime que recibió datos
+          cat job-data.json
+
+      - name: Build video (placeholder)
+        run: |
+          echo "Aquí irá el comando ffmpeg más adelante"
+          echo "Video construido exitosamente (simulado)"
+
+      - name: Upload to Cloudinary (placeholder)
+        run: |
+          echo "Subir a Cloudinary pendiente"
+
+      - name: Notify Empire server
+        run: |
+          echo "Notificación pendiente"
