@@ -1,7 +1,7 @@
 // src/lib/marketing-automation.ts
 // Versión definitiva y estable - SIN REMOTION
-// Funcionalidades: Hotmart (búsqueda real), Pexels (imagen y video), Cloudinary, Telegram, Groq
-// El ciclo principal genera campañas completas (copy, lead magnet, funnel) pero NO genera video (videoUrl = '')
+// Funcionalidades: Hotmart, Pexels, Cloudinary, Telegram, Groq
+// El ciclo principal genera campañas y dispara worker en GitHub Actions para video
 
 import { redis } from './redis';
 import { callLLM } from './orchestrator';
@@ -178,7 +178,7 @@ async function searchPexelsImage(query: string): Promise<string> {
 }
 
 // ============================================================
-// Helper: Video de Pexels (búsqueda de clips, aunque no se usa en ciclo)
+// Helper: Video de Pexels (búsqueda de clips)
 // ============================================================
 
 async function searchPexelsVideo(query: string): Promise<string> {
@@ -239,7 +239,7 @@ async function filterProductsByAI(products: AffiliateProduct[]): Promise<Affilia
 }
 
 // ============================================================
-// Generar contenido de campaña (incluye guión para video, pero no se usa)
+// Generar contenido de campaña
 // ============================================================
 
 async function generateCampaignContent(product: AffiliateProduct): Promise<{
@@ -286,7 +286,7 @@ async function generateCampaignContent(product: AffiliateProduct): Promise<{
 }
 
 // ============================================================
-// Generar funnel HTML (sin video)
+// Generar funnel HTML
 // ============================================================
 
 function generateFunnelHtml(product: AffiliateProduct, content: {
@@ -323,43 +323,56 @@ async function publishCampaignToAllNetworks(campaign: CampaignData): Promise<num
   return count;
 }
 
-// Generar video usando solo Cloudinary (sin servicios externos)
-async function generateVideoWithCloudinary(
-  backgroundVideoUrl: string,  // URL del clip de Pexels
-  audioUrl: string,             // URL del audio en Cloudinary (voz en off)
-  subtitleText: string,         // Texto del subtítulo (ej. "Compra ahora")
-  duration: number              // duración en segundos (ajusta el video)
-): Promise<string> {
-  // Primero, subimos el video de fondo a Cloudinary (si no está ya)
-  const uploadFormData = new FormData();
-  uploadFormData.append('file', backgroundVideoUrl);
-  uploadFormData.append('upload_preset', UPLOAD_PRESET);
-  uploadFormData.append('public_id', `temp_bg_video_${Date.now()}`);
-  
-  const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/video/upload`, {
-    method: 'POST',
-    body: uploadFormData
-  });
-  if (!uploadRes.ok) throw new Error('Error subiendo video de fondo');
-  const uploaded = await uploadRes.json();
-  const uploadedVideoId = uploaded.public_id;
+// ============================================================
+// NUEVA FUNCIÓN: Disparar workflow en GitHub Actions
+// ============================================================
+async function triggerGitHubWorkflow(jobData: any) {
+  const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+  if (!GITHUB_TOKEN) {
+    console.error('❌ GITHUB_TOKEN no configurado en Vercel');
+    await logOrchestratorAction('video:workflow:missing_token');
+    return;
+  }
 
-  // Construir la URL de transformación (overlay de audio + texto)
-  // Nota: Escapamos el texto para URL
-  const encodedSubtitle = encodeURIComponent(subtitleText);
-  
-  // La URL final combina el video de fondo con el audio superpuesto y texto
-  const transformationUrl = `https://res.cloudinary.com/${CLOUD_NAME}/video/upload/l_text:Arial_70:${encodedSubtitle},co_rgb:ffffff,so_0.5,g_south,fl_cutter,duration_${duration}/fl_splice,l_audio:${audioUrl},fl_splice/${uploadedVideoId}.mp4`;
-  
-  // Cloudinary procesará el video bajo demanda. La URL es directamente accesible.
-  // Pero para asegurar que se procese, podemos forzar una petición GET con fetch.
-  // No es necesario guardar otro archivo; la URL ya es el resultado.
-  
-  return transformationUrl;
+  // Cambia estos valores si tu usuario o repositorio son diferentes
+  const owner = 'jorgecastillog1';
+  const repo = 'empire-crew';
+
+  const url = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/build-video.yml/dispatches`;
+
+  const payload = {
+    ref: 'main',
+    inputs: {
+      jobData: JSON.stringify(jobData)
+    }
+  };
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/vnd.github.v3+json',
+        'Authorization': `Bearer ${GITHUB_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`GitHub API error: ${response.status} - ${errorText}`);
+    }
+
+    console.log('✅ Workflow disparado correctamente');
+    await logOrchestratorAction('video:workflow:triggered');
+  } catch (error: any) {
+    console.error('❌ Error al disparar workflow:', error.message);
+    await logOrchestratorAction(`video:workflow:error:${error.message.slice(0, 80)}`);
+  }
 }
 
 // ============================================================
-// CICLO PRINCIPAL (sin generación de video)
+// CICLO PRINCIPAL (con disparo a GitHub Actions)
 // ============================================================
 
 export async function runMarketingCycle(): Promise<MarketingCycleLog> {
@@ -384,11 +397,26 @@ export async function runMarketingCycle(): Promise<MarketingCycleLog> {
     const bestProducts = await filterProductsByAI(allProducts);
     productsFiltered = bestProducts.length;
 
+    // 🔥 Disparar worker de GitHub Actions (solo una vez por ciclo) con el primer producto
+    if (bestProducts.length > 0) {
+      const firstProduct = bestProducts[0];
+      const videoJobData = {
+        jobId: `video-${Date.now()}`,
+        productName: firstProduct.name,
+        productId: firstProduct.id,
+        productDescription: firstProduct.description,
+        imageUrl: firstProduct.imageUrl || '',
+        affiliateUrl: firstProduct.affiliateUrl,
+        timestamp: Date.now(),
+      };
+      await triggerGitHubWorkflow(videoJobData);
+    }
+
     for (const product of bestProducts) {
       try {
         const content = await generateCampaignContent(product);
         const imageUrl = await searchPexelsImage(product.name);
-        const videoUrl = '';  // Video no generado en esta versión
+        const videoUrl = '';  // El video se generará en GitHub Actions
 
         const leadMagnetUrl = await uploadToCloudinary(content.leadMagnetMarkdown, `leadmagnet_${product.id}_${Date.now()}`, 'text/markdown');
         const funnelHtml = generateFunnelHtml(product, {
@@ -440,5 +468,6 @@ export async function runMarketingCycle(): Promise<MarketingCycleLog> {
   await redis.ltrim('empire:marketing:cycle-logs', 0, 49);
   await writeProof('marketing:cycle', { startTime }, logEntry, 'marketing-automation', 'marketing-pro');
   await logOrchestratorAction(`marketing:cycle:done: prods=${productsFound}, campaigns=${campaignsGenerated}, pub=${published}, errors=${errors.length}`);
+
   return logEntry;
 }
