@@ -323,6 +323,41 @@ async function publishCampaignToAllNetworks(campaign: CampaignData): Promise<num
   return count;
 }
 
+// Generar video usando solo Cloudinary (sin servicios externos)
+async function generateVideoWithCloudinary(
+  backgroundVideoUrl: string,  // URL del clip de Pexels
+  audioUrl: string,             // URL del audio en Cloudinary (voz en off)
+  subtitleText: string,         // Texto del subtítulo (ej. "Compra ahora")
+  duration: number              // duración en segundos (ajusta el video)
+): Promise<string> {
+  // Primero, subimos el video de fondo a Cloudinary (si no está ya)
+  const uploadFormData = new FormData();
+  uploadFormData.append('file', backgroundVideoUrl);
+  uploadFormData.append('upload_preset', UPLOAD_PRESET);
+  uploadFormData.append('public_id', `temp_bg_video_${Date.now()}`);
+  
+  const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/video/upload`, {
+    method: 'POST',
+    body: uploadFormData
+  });
+  if (!uploadRes.ok) throw new Error('Error subiendo video de fondo');
+  const uploaded = await uploadRes.json();
+  const uploadedVideoId = uploaded.public_id;
+
+  // Construir la URL de transformación (overlay de audio + texto)
+  // Nota: Escapamos el texto para URL
+  const encodedSubtitle = encodeURIComponent(subtitleText);
+  
+  // La URL final combina el video de fondo con el audio superpuesto y texto
+  const transformationUrl = `https://res.cloudinary.com/${CLOUD_NAME}/video/upload/l_text:Arial_70:${encodedSubtitle},co_rgb:ffffff,so_0.5,g_south,fl_cutter,duration_${duration}/fl_splice,l_audio:${audioUrl},fl_splice/${uploadedVideoId}.mp4`;
+  
+  // Cloudinary procesará el video bajo demanda. La URL es directamente accesible.
+  // Pero para asegurar que se procese, podemos forzar una petición GET con fetch.
+  // No es necesario guardar otro archivo; la URL ya es el resultado.
+  
+  return transformationUrl;
+}
+
 // ============================================================
 // CICLO PRINCIPAL (sin generación de video)
 // ============================================================
