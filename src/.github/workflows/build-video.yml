@@ -1,0 +1,15 @@
+name: 🎬 Build Marketing Video
+
+on:
+  workflow_dispatch:
+    inputs:
+      jobData:
+        description: 'Datos del video (JSON)'
+        required: true
+
+jobs:
+  build-video:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
