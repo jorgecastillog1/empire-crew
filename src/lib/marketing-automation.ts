@@ -1,5 +1,8 @@
 // src/lib/marketing-automation.ts
-// Módulo de automatización de marketing con subida a Cloudinary (usando Blob)
+// Módulo de automatización de marketing con:
+// - Integración real con API de Hotmart (búsqueda de productos)
+// - Búsqueda de imágenes y videos en Pexels (gratuito)
+// - Subida de lead magnets y funnels a Cloudinary
 
 import { redis } from './redis';
 import { callLLM } from './orchestrator';
@@ -20,6 +23,7 @@ export interface AffiliateProduct {
   platform: string;
   affiliateUrl: string;
   imageUrl?: string;
+  videoUrl?: string;       // NUEVO: video promocional de Pexels
   category?: string;
   rating?: number;
 }
@@ -31,9 +35,10 @@ export interface CampaignData {
   socialProof: string;
   urgentCallToAction: string;
   fullCopy: string;
-  leadMagnetUrl: string;      // URL en Cloudinary del lead magnet (Markdown)
-  funnelUrl: string;           // URL en Cloudinary del funnel HTML
+  leadMagnetUrl: string;
+  funnelUrl: string;
   imageUrl: string;
+  videoUrl: string;        // NUEVO: URL del video
   publishedAt: number;
   success: boolean;
   error?: string;
@@ -49,7 +54,7 @@ export interface MarketingCycleLog {
 }
 
 // ============================================================
-// Configuración de Cloudinary (desde variables de entorno)
+// Configuración de Cloudinary
 // ============================================================
 
 const CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME || '';
@@ -58,7 +63,98 @@ const API_SECRET = process.env.CLOUDINARY_API_SECRET || '';
 const UPLOAD_PRESET = 'empire_marketing_leadmagnets';
 
 // ============================================================
-// Helper: Subir contenido a Cloudinary usando Blob
+// Configuración de Hotmart
+// ============================================================
+
+const HOTMART_CLIENT_ID = process.env.HOTMART_CLIENT_ID || '';
+const HOTMART_CLIENT_SECRET = process.env.HOTMART_CLIENT_SECRET || '';
+let hotmartAccessToken: string | null = null;
+let tokenExpiresAt = 0;
+
+// ============================================================
+// Helper: Autenticación en Hotmart (obtener access token)
+// ============================================================
+
+async function getHotmartToken(): Promise<string> {
+  // Si el token aún es válido (con margen de 5 minutos), reutilizarlo
+  if (hotmartAccessToken && Date.now() < tokenExpiresAt - 5 * 60 * 1000) {
+    return hotmartAccessToken;
+  }
+
+  if (!HOTMART_CLIENT_ID || !HOTMART_CLIENT_SECRET) {
+    throw new Error('Hotmart no configurado: faltan HOTMART_CLIENT_ID o HOTMART_CLIENT_SECRET');
+  }
+
+  const auth = Buffer.from(`${HOTMART_CLIENT_ID}:${HOTMART_CLIENT_SECRET}`).toString('base64');
+  const response = await fetch('https://api.hotmart.com/oauth/token', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Basic ${auth}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: 'grant_type=client_credentials',
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Hotmart auth error: ${response.status} ${errorText}`);
+  }
+
+  const data = await response.json();
+  hotmartAccessToken = data.access_token;
+  tokenExpiresAt = Date.now() + (data.expires_in * 1000);
+  
+  // Aseguramos que el token no sea null/undefined
+  if (!hotmartAccessToken) {
+    throw new Error('Hotmart no devolvió access_token');
+  }
+  
+  return hotmartAccessToken;
+}
+
+// ============================================================
+// Helper: Buscar productos reales en Hotmart
+// ============================================================
+
+async function searchHotmartProducts(query: string = ''): Promise<AffiliateProduct[]> {
+  const token = await getHotmartToken();
+  // Usar el endpoint de productos de Hotmart (documentación: GET /products/api/v2/products)
+  let url = 'https://api.hotmart.com/products/api/v2/products?product_status=ACTIVE&max_results=10';
+  if (query) {
+    url += `&name=${encodeURIComponent(query)}`;
+  }
+
+  const response = await fetch(url, {
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Hotmart API error: ${response.status} ${errorText}`);
+  }
+
+  const data = await response.json();
+  // Mapear respuesta de Hotmart a nuestro formato AffiliateProduct
+  // La estructura exacta depende de la respuesta; aquí asumo campos comunes
+  const items = data.items || data.data || [];
+  return items.map((item: any) => ({
+    id: item.id?.toString() || `hotmart-${Date.now()}`,
+    name: item.name || 'Sin nombre',
+    description: item.shortDescription || item.description || 'Sin descripción',
+    price: item.price?.amount || 0,
+    commission: item.commission?.percent || 0,
+    platform: 'hotmart',
+    affiliateUrl: `https://hotmart.com/product/${item.id}?affiliate_id=TU_ID`, // Reemplazar con tu affiliate ID
+    category: item.category?.name || '',
+    rating: item.rating || 0,
+  }));
+}
+
+// ============================================================
+// Helper: Subir contenido a Cloudinary (Blob)
 // ============================================================
 
 async function uploadToCloudinary(content: string, publicId: string, contentType: 'text/markdown' | 'text/html'): Promise<string> {
@@ -66,25 +162,16 @@ async function uploadToCloudinary(content: string, publicId: string, contentType
     throw new Error('Cloudinary no configurado. Faltan variables de entorno.');
   }
 
-  // Determinar la extensión y el MIME type correcto
   const extension = contentType === 'text/markdown' ? 'md' : 'html';
   const mimeType = contentType === 'text/markdown' ? 'text/plain' : 'text/html';
-  
-  // Crear un Blob a partir del contenido
   const blob = new Blob([content], { type: mimeType });
-  
-  // Crear FormData y adjuntar el blob como un archivo
   const formData = new FormData();
   formData.append('file', blob, `${publicId}.${extension}`);
   formData.append('upload_preset', UPLOAD_PRESET);
   formData.append('public_id', `marketing/${publicId}`);
 
   const url = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/raw/upload`;
-
-  const response = await fetch(url, {
-    method: 'POST',
-    body: formData,
-  });
+  const response = await fetch(url, { method: 'POST', body: formData });
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -96,24 +183,66 @@ async function uploadToCloudinary(content: string, publicId: string, contentType
 }
 
 // ============================================================
-// Helper: Obtener settings (para plataformas de afiliados)
+// Helper: Obtener imagen de Pexels
 // ============================================================
 
-async function getSettings() {
-  const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
-  const res = await fetch(`${baseUrl}/api/settings`);
-  if (!res.ok) throw new Error('No se pudo obtener settings');
-  return res.json();
+async function searchPexelsImage(query: string): Promise<string> {
+  const PEXELS_API_KEY = process.env.PEXELS_API_KEY || '';
+  if (!PEXELS_API_KEY) return '';
+  const res = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=1`, {
+    headers: { Authorization: PEXELS_API_KEY },
+  });
+  const data = await res.json();
+  return data.photos?.[0]?.src?.original || '';
 }
 
 // ============================================================
-// 1. Scraping de productos (stub - reemplazar con scraping real)
+// NUEVO: Buscar video en Pexels
+// ============================================================
+
+async function searchPexelsVideo(query: string): Promise<string> {
+  const PEXELS_API_KEY = process.env.PEXELS_API_KEY || '';
+  if (!PEXELS_API_KEY) return '';
+  const res = await fetch(`https://api.pexels.com/videos/search?query=${encodeURIComponent(query)}&per_page=1`, {
+    headers: { Authorization: PEXELS_API_KEY },
+  });
+  const data = await res.json();
+  const video = data.videos?.[0];
+  if (!video) return '';
+  // Elegir la versión de menor resolución para evitar archivos pesados
+  const videoFile = video.video_files?.find((f: any) => f.quality === 'hd' || f.quality === 'sd');
+  return videoFile?.link || video.video_files?.[0]?.link || '';
+}
+
+// ============================================================
+// 1. Scraping de productos (con Hotmart real + fallback a stub)
 // ============================================================
 
 async function scrapePlatform(platform: string): Promise<AffiliateProduct[]> {
   logOrchestratorAction(`marketing:scraping:${platform}`);
-  // Datos de ejemplo. En producción, usar scrapeUrl de browser.ts
-  if (platform === 'clickbank') {
+  if (platform === 'hotmart') {
+    try {
+      // Buscar productos con query "marketing" o "trading" (puedes parametrizar)
+      return await searchHotmartProducts('marketing');
+    } catch (error: any) {
+      logOrchestratorAction(`marketing:hotmart_error:${error.message}`);
+      // Fallback a datos de ejemplo si la API falla
+      return [
+        {
+          id: 'hm-fallback',
+          name: 'Embudo de Ventas Avanzado (demo)',
+          description: 'Construye funnels que convierten al 5%',
+          price: 97,
+          commission: 50,
+          platform: 'hotmart',
+          affiliateUrl: 'https://hotmart.com/producto-ejemplo',
+          category: 'funnels',
+          rating: 4.9,
+        },
+      ];
+    }
+  } else if (platform === 'clickbank') {
+    // Por ahora, stub para ClickBank
     return [
       {
         id: 'cb-1',
@@ -125,21 +254,6 @@ async function scrapePlatform(platform: string): Promise<AffiliateProduct[]> {
         affiliateUrl: 'https://clickbank.com/producto-ejemplo',
         category: 'trading',
         rating: 4.8,
-      },
-    ];
-  }
-  if (platform === 'hotmart') {
-    return [
-      {
-        id: 'hm-1',
-        name: 'Embudo de Ventas Avanzado',
-        description: 'Construye funnels que convierten al 5%',
-        price: 97,
-        commission: 50,
-        platform: 'hotmart',
-        affiliateUrl: 'https://hotmart.com/producto-ejemplo',
-        category: 'funnels',
-        rating: 4.9,
       },
     ];
   }
@@ -169,7 +283,7 @@ async function filterProductsByAI(products: AffiliateProduct[]): Promise<Affilia
 }
 
 // ============================================================
-// 3. Generar campaña (copy + lead magnet en Markdown)
+// 3. Generar campaña (copy + lead magnet)
 // ============================================================
 
 async function generateCampaignContent(product: AffiliateProduct): Promise<{
@@ -192,7 +306,6 @@ async function generateCampaignContent(product: AffiliateProduct): Promise<{
     const clean = result.response.replace(/```json|```/g, '').trim();
     return JSON.parse(clean);
   } catch {
-    // fallback
     return {
       hook: `🔥 ¡Descubre ${product.name}!`,
       uniqueValueProp: `La mejor solución para ${product.name}`,
@@ -205,7 +318,7 @@ async function generateCampaignContent(product: AffiliateProduct): Promise<{
 }
 
 // ============================================================
-// 4. Generar funnel HTML a partir del copy
+// 4. Generar funnel HTML
 // ============================================================
 
 function generateFunnelHtml(product: AffiliateProduct, content: {
@@ -213,6 +326,7 @@ function generateFunnelHtml(product: AffiliateProduct, content: {
   fullCopy: string;
   urgentCallToAction: string;
   leadMagnetUrl: string;
+  videoUrl: string;
 }): string {
   return `<!DOCTYPE html>
 <html>
@@ -225,6 +339,7 @@ function generateFunnelHtml(product: AffiliateProduct, content: {
     .container { max-width: 800px; margin: auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
     h1 { color: #333; }
     .hook { font-size: 1.5em; font-weight: bold; color: #e67e22; }
+    video { width: 100%; border-radius: 8px; margin: 20px 0; }
     .cta { background: #e67e22; color: white; padding: 12px 24px; text-decoration: none; display: inline-block; border-radius: 5px; margin-top: 20px; }
     .lead-magnet { background: #f9f9f9; padding: 15px; margin: 20px 0; border-left: 4px solid #e67e22; }
   </style>
@@ -233,6 +348,7 @@ function generateFunnelHtml(product: AffiliateProduct, content: {
 <div class="container">
   <div class="hook">${content.hook}</div>
   <h1>${product.name}</h1>
+  ${content.videoUrl ? `<video src="${content.videoUrl}" controls poster="${product.imageUrl || ''}"></video>` : ''}
   <p>${content.fullCopy}</p>
   <div class="lead-magnet">
     <strong>📘 Bono exclusivo:</strong> Descarga nuestra guía gratuita <a href="${content.leadMagnetUrl}" target="_blank">aquí</a>.
@@ -244,26 +360,14 @@ function generateFunnelHtml(product: AffiliateProduct, content: {
 }
 
 // ============================================================
-// 5. Buscar imagen en Pexels
+// 5. Publicación en Telegram (incluyendo video)
 // ============================================================
 
-async function searchPexelsImage(query: string): Promise<string> {
-  const PEXELS_API_KEY = process.env.PEXELS_API_KEY || '';
-  if (!PEXELS_API_KEY) return '';
-  const res = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=1`, {
-    headers: { Authorization: PEXELS_API_KEY },
-  });
-  const data = await res.json();
-  return data.photos?.[0]?.src?.original || '';
-}
-
-// ============================================================
-// 6. Publicación en Telegram (y stub para otras redes)
-// ============================================================
-
-async function publishToTelegram(message: string): Promise<boolean> {
+async function publishToTelegram(message: string, videoUrl?: string): Promise<boolean> {
   try {
-    await executeTool('telegram_notify', { message: `📢 Nueva campaña automática:\n\n${message}` });
+    // Si hay video, intentar enviar como video (se requiere subir el archivo o enviar URL)
+    // Por simplicidad, enviamos el enlace en el mensaje
+    await executeTool('telegram_notify', { message: `📢 Nueva campaña automática:\n\n${message}\n\n🎥 Video: ${videoUrl || 'No disponible'}` });
     return true;
   } catch {
     return false;
@@ -273,13 +377,12 @@ async function publishToTelegram(message: string): Promise<boolean> {
 async function publishCampaignToAllNetworks(campaign: CampaignData): Promise<number> {
   let publishedCount = 0;
   const message = `${campaign.hook}\n\n${campaign.fullCopy}\n\n${campaign.urgentCallToAction}\n\n🔗 ${campaign.product.affiliateUrl}\n\n📘 Lead Magnet: ${campaign.leadMagnetUrl}\n📄 Funnel: ${campaign.funnelUrl}`;
-  if (await publishToTelegram(message)) publishedCount++;
-  // Aquí se pueden añadir Twitter, Facebook, etc. según settings
+  if (await publishToTelegram(message, campaign.videoUrl)) publishedCount++;
   return publishedCount;
 }
 
 // ============================================================
-// 7. Ciclo principal
+// 6. Ciclo principal
 // ============================================================
 
 export async function runMarketingCycle(): Promise<MarketingCycleLog> {
@@ -293,8 +396,8 @@ export async function runMarketingCycle(): Promise<MarketingCycleLog> {
   await logOrchestratorAction('marketing:cycle:start');
 
   try {
-    // Lista de plataformas (debería venir de settings)
-    const platforms = ['clickbank', 'hotmart'];
+    // Priorizar Hotmart real, luego ClickBank (stub)
+    const platforms = ['hotmart', 'clickbank'];
     let allProducts: AffiliateProduct[] = [];
 
     for (const platform of platforms) {
@@ -315,19 +418,24 @@ export async function runMarketingCycle(): Promise<MarketingCycleLog> {
         // 1. Generar contenido con IA
         const content = await generateCampaignContent(product);
 
-        // 2. Subir lead magnet a Cloudinary (Markdown)
+        // 2. Buscar imagen y video en Pexels (gratis)
+        const imageUrl = await searchPexelsImage(product.name);
+        const videoUrl = await searchPexelsVideo(product.name);
+
+        // 3. Subir lead magnet a Cloudinary
         const leadMagnetUrl = await uploadToCloudinary(
           content.leadMagnetMarkdown,
           `leadmagnet_${product.id}_${Date.now()}`,
           'text/markdown'
         );
 
-        // 3. Generar funnel HTML y subirlo a Cloudinary
+        // 4. Generar funnel HTML (incluye video) y subirlo
         const funnelHtml = generateFunnelHtml(product, {
           hook: content.hook,
           fullCopy: content.fullCopy,
           urgentCallToAction: content.urgentCallToAction,
           leadMagnetUrl,
+          videoUrl,
         });
         const funnelUrl = await uploadToCloudinary(
           funnelHtml,
@@ -335,12 +443,9 @@ export async function runMarketingCycle(): Promise<MarketingCycleLog> {
           'text/html'
         );
 
-        // 4. Buscar imagen en Pexels
-        const imageUrl = await searchPexelsImage(product.name);
-
-        // 5. Construir objeto campaña
+        // 5. Construir campaña
         const campaign: CampaignData = {
-          product,
+          product: { ...product, imageUrl, videoUrl },
           hook: content.hook,
           uniqueValueProp: content.uniqueValueProp,
           socialProof: content.socialProof,
@@ -349,16 +454,17 @@ export async function runMarketingCycle(): Promise<MarketingCycleLog> {
           leadMagnetUrl,
           funnelUrl,
           imageUrl,
+          videoUrl,
           publishedAt: Date.now(),
           success: true,
         };
 
-        // 6. Publicar en redes
+        // 6. Publicar
         const pubCount = await publishCampaignToAllNetworks(campaign);
         published += pubCount;
         campaignsGenerated++;
 
-        // 7. Guardar campaña en Redis
+        // 7. Guardar en Redis
         await redis.lpush('empire:marketing:campaigns', JSON.stringify(campaign));
         await redis.ltrim('empire:marketing:campaigns', 0, 99);
       } catch (err: any) {
