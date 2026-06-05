@@ -207,11 +207,42 @@ async function scrapePlatform(platform: string): Promise<AffiliateProduct[]> {
   logOrchestratorAction(`marketing:scraping:${platform}`);
   if (platform === 'hotmart') {
     try {
-      return await searchHotmartProducts('marketing');
+      const hotmartProducts = await searchHotmartProducts('marketing');
+      if (hotmartProducts.length > 0) {
+        return hotmartProducts;
+      }
+      // Si Hotmart no devuelve nada, usar productos de prueba
+      logOrchestratorAction('marketing:hotmart:no_real_products, usando productos de prueba');
     } catch (error: any) {
-      logOrchestratorAction(`marketing:hotmart_error:${error.message}`);
-      return [];
+      logOrchestratorAction(`marketing:hotmart_error:${error.message}, usando productos de prueba`);
     }
+    // Productos de prueba (para que el flujo continúe)
+    return [
+      {
+        id: 'test-1',
+        name: 'Curso de Marketing Digital Avanzado',
+        description: 'Aprende a vender en TikTok e Instagram',
+        price: 47,
+        commission: 50,
+        platform: 'hotmart',
+        affiliateUrl: 'https://hotmart.com/test',
+        imageUrl: '',
+        category: 'marketing',
+        rating: 4.5,
+      },
+      {
+        id: 'test-2',
+        name: 'Pack de Plantillas para Embudos',
+        description: 'Diseños profesionales para alta conversión',
+        price: 27,
+        commission: 60,
+        platform: 'hotmart',
+        affiliateUrl: 'https://hotmart.com/test2',
+        imageUrl: '',
+        category: 'marketing',
+        rating: 4.8,
+      },
+    ];
   }
   return [];
 }
