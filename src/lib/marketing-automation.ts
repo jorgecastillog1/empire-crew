@@ -1,6 +1,7 @@
 // src/lib/marketing-automation.ts
-// Versión limpia: solo Hotmart, Pexels, Cloudinary, Telegram, Groq
-// Eliminadas todas las referencias a Make, InVideo, webhooks.
+// Versión definitiva y estable - SIN REMOTION
+// Funcionalidades: Hotmart (búsqueda real), Pexels (imagen y video), Cloudinary, Telegram, Groq
+// El ciclo principal genera campañas completas (copy, lead magnet, funnel) pero NO genera video (videoUrl = '')
 
 import { redis } from './redis';
 import { callLLM } from './orchestrator';
@@ -177,6 +178,28 @@ async function searchPexelsImage(query: string): Promise<string> {
 }
 
 // ============================================================
+// Helper: Video de Pexels (búsqueda de clips, aunque no se usa en ciclo)
+// ============================================================
+
+async function searchPexelsVideo(query: string): Promise<string> {
+  const PEXELS_API_KEY = process.env.PEXELS_API_KEY || '';
+  if (!PEXELS_API_KEY) return '';
+  try {
+    const res = await fetch(`https://api.pexels.com/videos/search?query=${encodeURIComponent(query)}&per_page=1&orientation=portrait`, {
+      headers: { Authorization: PEXELS_API_KEY },
+    });
+    if (!res.ok) throw new Error(`Pexels video error: ${res.status}`);
+    const data = await res.json();
+    const video = data.videos?.[0];
+    if (!video) return '';
+    const videoFile = video.video_files?.find((f: any) => f.quality === 'hd' || f.quality === 'sd');
+    return videoFile?.link || video.video_files?.[0]?.link || '';
+  } catch (error) {
+    return '';
+  }
+}
+
+// ============================================================
 // Helper: Scraping de plataforma (Hotmart real)
 // ============================================================
 
@@ -216,7 +239,7 @@ async function filterProductsByAI(products: AffiliateProduct[]): Promise<Affilia
 }
 
 // ============================================================
-// Generar contenido de campaña (incluye guión para video)
+// Generar contenido de campaña (incluye guión para video, pero no se usa)
 // ============================================================
 
 async function generateCampaignContent(product: AffiliateProduct): Promise<{
@@ -235,7 +258,7 @@ async function generateCampaignContent(product: AffiliateProduct): Promise<{
   "socialProof": "testimonio o dato (10 palabras)",
   "urgentCallToAction": "acción urgente (máx 6 palabras)",
   "fullCopy": "texto para post de red social (60-80 palabras, estilo conversacional con emojis)",
-  "videoScript": "guión para video de 30 segundos, dividido en escenas. Ejemplo: '[ESCENA 1] Texto... [ESCENA 2] Texto...'",
+  "videoScript": "guión para video de 30 segundos, dividido en escenas.",
   "leadMagnetMarkdown": "contenido del lead magnet en Markdown (1 página)"
 }`;
   const userMessage = `Producto: ${product.name}\nDescripción: ${product.description}\nPrecio: $${product.price}\nComisión: ${product.commission}%`;
@@ -256,14 +279,14 @@ async function generateCampaignContent(product: AffiliateProduct): Promise<{
       socialProof: `Más de 1000 ventas confirmadas`,
       urgentCallToAction: `COMPRA ANTES DE 48H`,
       fullCopy: `¿Listo para multiplicar tus ventas? Este producto es la clave. 🔥 Oferta limitada.`,
-      videoScript: `[ESCENA 1] ¿Estás perdiendo ventas? [ESCENA 2] Este producto te ayudará a multiplicar tus ingresos. [ESCENA 3] Beneficio rápido. [ESCENA 4] Testimonio. [ESCENA 5] Clic en el enlace.`,
+      videoScript: `[ESCENA 1] ¿Estás perdiendo ventas? [ESCENA 2] Este producto te ayudará...`,
       leadMagnetMarkdown: `# Guía gratuita\n\nContenido descargable...`,
     };
   }
 }
 
 // ============================================================
-// Generar funnel HTML (sin video por ahora)
+// Generar funnel HTML (sin video)
 // ============================================================
 
 function generateFunnelHtml(product: AffiliateProduct, content: {
@@ -276,8 +299,8 @@ function generateFunnelHtml(product: AffiliateProduct, content: {
   return `<!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${product.name}</title><style>
-body{background:#000;color:#fff;font-family:system-ui;text-align:center;padding:20px;margin:0}.container{max-width:600px;margin:auto}.hook{font-size:2rem;font-weight:bold;margin:20px 0}.cta{background:#ff4757;color:#fff;padding:14px 28px;border-radius:40px;text-decoration:none;display:inline-block;font-weight:bold;margin:20px 0}.lead-magnet{background:#1e1e1e;padding:15px;border-radius:12px;margin:20px}</style></head>
-<body><div class="container"><div class="hook">${content.hook}</div><img src="${content.imageUrl}" style="max-width:100%; border-radius:16px;" /><p>${content.fullCopy}</p><div class="lead-magnet">📘 <a href="${content.leadMagnetUrl}" style="color:#ff4757;">Descarga tu guía gratuita</a></div><a href="${product.affiliateUrl}" class="cta">${content.urgentCallToAction}</a></div></body></html>`;
+body{background:#000;color:#fff;font-family:system-ui;text-align:center;padding:20px;margin:0}.container{max-width:600px;margin:auto}.hook{font-size:2rem;font-weight:bold;margin:20px 0}img{max-width:100%;border-radius:16px;margin:20px 0}.cta{background:#ff4757;color:#fff;padding:14px 28px;border-radius:40px;text-decoration:none;display:inline-block;font-weight:bold;margin:20px 0}.lead-magnet{background:#1e1e1e;padding:15px;border-radius:12px;margin:20px}</style></head>
+<body><div class="container"><div class="hook">${content.hook}</div><img src="${content.imageUrl}" /><p>${content.fullCopy}</p><div class="lead-magnet">📘 <a href="${content.leadMagnetUrl}" style="color:#ff4757;">Descarga tu guía gratuita</a></div><a href="${product.affiliateUrl}" class="cta">${content.urgentCallToAction}</a></div></body></html>`;
 }
 
 // ============================================================
@@ -295,13 +318,13 @@ async function publishToTelegram(message: string): Promise<boolean> {
 
 async function publishCampaignToAllNetworks(campaign: CampaignData): Promise<number> {
   let count = 0;
-  const msg = `${campaign.hook}\n\n${campaign.fullCopy}\n\n${campaign.urgentCallToAction}\n🔗 ${campaign.product.affiliateUrl}\n📘 Lead Magnet: ${campaign.leadMagnetUrl}\n📄 Funnel: ${campaign.funnelUrl}\n🎥 Video: ${campaign.videoUrl || 'No generado'}`;
+  const msg = `${campaign.hook}\n\n${campaign.fullCopy}\n\n${campaign.urgentCallToAction}\n🔗 ${campaign.product.affiliateUrl}\n📘 Lead Magnet: ${campaign.leadMagnetUrl}\n📄 Funnel: ${campaign.funnelUrl}`;
   if (await publishToTelegram(msg)) count++;
   return count;
 }
 
 // ============================================================
-// Ciclo principal (sin generación de video por ahora)
+// CICLO PRINCIPAL (sin generación de video)
 // ============================================================
 
 export async function runMarketingCycle(): Promise<MarketingCycleLog> {
@@ -330,8 +353,7 @@ export async function runMarketingCycle(): Promise<MarketingCycleLog> {
       try {
         const content = await generateCampaignContent(product);
         const imageUrl = await searchPexelsImage(product.name);
-        // Por ahora, videoUrl vacío. Próximamente integraremos Remotion.
-        const videoUrl = '';
+        const videoUrl = '';  // Video no generado en esta versión
 
         const leadMagnetUrl = await uploadToCloudinary(content.leadMagnetMarkdown, `leadmagnet_${product.id}_${Date.now()}`, 'text/markdown');
         const funnelHtml = generateFunnelHtml(product, {
