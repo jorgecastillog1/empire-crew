@@ -46,11 +46,12 @@ jobs:
           curl -L "$VIDEO_URL" -o background.mp4
           ffmpeg -i background.mp4 -t 5 -c copy background_5s.mp4
 
-      - name: Generate Spanish voiceover with espeak
+            - name: Generate Spanish voiceover with espeak
         run: |
           TEXT="¡Descubre $PRODUCT_NAME! La mejor opción para ti. Compra ahora."
           echo "$TEXT" > script.txt
-          espeak -v spanish -s 150 -w audio.wav "$TEXT"
+          # Usar el código de idioma 'es' para mayor compatibilidad
+          espeak -v es -s 150 -w audio.wav "$TEXT" || espeak -v spanish -s 150 -w audio.wav "$TEXT"
           ffmpeg -i audio.wav -ar 44100 -ac 2 audio_fixed.mp3
 
       - name: Create Spanish subtitles (SRT)
