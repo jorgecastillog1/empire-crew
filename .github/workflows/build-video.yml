@@ -1,4 +1,4 @@
-name: 🎬 Build Marketing Video
+name: Build Marketing Video
 
 on:
   workflow_dispatch:
@@ -15,15 +15,12 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install FFmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg espeak
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-
-      - name: Install gTTS (text-to-speech)
-        run: pip install gtts
 
       - name: Parse job data
         id: parse
@@ -43,18 +40,18 @@ jobs:
             "https://api.pexels.com/videos/search?query=$QUERY&per_page=1&orientation=portrait" > pexels.json
           VIDEO_URL=$(jq -r '.videos[0].video_files[0].link' pexels.json)
           if [ "$VIDEO_URL" = "null" ]; then
-            echo "No video found, using fallback"
+            echo "Using fallback video"
             VIDEO_URL="https://cdn.pixabay.com/video/2023/06/20/169263-840843080_tiny.mp4"
           fi
           curl -L "$VIDEO_URL" -o background.mp4
           ffmpeg -i background.mp4 -t 5 -c copy background_5s.mp4
 
-      - name: Generate Spanish voiceover with gTTS
+      - name: Generate Spanish voiceover with espeak
         run: |
-          SCRIPT="¡Descubre $PRODUCT_NAME! La mejor opción para ti. Compra ahora."
-          echo "$SCRIPT" > script.txt
-          gtts-cli "$SCRIPT" --lang es --output audio.mp3
-          ffmpeg -i audio.mp3 -ar 44100 -ac 2 audio_fixed.mp3
+          TEXT="¡Descubre $PRODUCT_NAME! La mejor opción para ti. Compra ahora."
+          echo "$TEXT" > script.txt
+          espeak -v spanish -s 150 -w audio.wav "$TEXT"
+          ffmpeg -i audio.wav -ar 44100 -ac 2 audio_fixed.mp3
 
       - name: Create Spanish subtitles (SRT)
         run: |
