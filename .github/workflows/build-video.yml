@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       jobData:
-        description: 'Datos del video (JSON)'
+        description: 'Video job data (JSON)'
         required: true
 
 jobs:
@@ -38,29 +38,25 @@ jobs:
         env:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
         run: |
-          # Buscar un clip vertical de 5 segundos relacionado con el producto
           QUERY=$(echo "$PRODUCT_NAME" | tr ' ' '+')
           curl -H "Authorization: $PEXELS_API_KEY" \
             "https://api.pexels.com/videos/search?query=$QUERY&per_page=1&orientation=portrait" > pexels.json
           VIDEO_URL=$(jq -r '.videos[0].video_files[0].link' pexels.json)
           if [ "$VIDEO_URL" = "null" ]; then
-            echo "No se encontró video, usando fallback"
-            VIDEO_URL="https://player.vimeo.com/external/380341799.sd.mp4?s=..." # fallback
+            echo "No video found, using fallback"
+            VIDEO_URL="https://cdn.pixabay.com/video/2023/06/20/169263-840843080_tiny.mp4"
           fi
           curl -L "$VIDEO_URL" -o background.mp4
-          # Recortar a 5 segundos (opcional)
           ffmpeg -i background.mp4 -t 5 -c copy background_5s.mp4
 
-      - name: Generate voiceover with gTTS
+      - name: Generate Spanish voiceover with gTTS
         run: |
-          # Crear un script corto basado en el nombre del producto
           SCRIPT="¡Descubre $PRODUCT_NAME! La mejor opción para ti. Compra ahora."
           echo "$SCRIPT" > script.txt
-          gtts-cli --text "$SCRIPT" --lang es --output audio.mp3
-          # Convertir a formato compatible con ffmpeg
+          gtts-cli "$SCRIPT" --lang es --output audio.mp3
           ffmpeg -i audio.mp3 -ar 44100 -ac 2 audio_fixed.mp3
 
-      - name: Create subtitles file (SRT)
+      - name: Create Spanish subtitles (SRT)
         run: |
           cat > subtitles.srt << EOF
           1
@@ -74,7 +70,6 @@ jobs:
 
       - name: Build final video with FFmpeg
         run: |
-          # Combinar video de fondo + audio + subtítulos quemados
           ffmpeg -i background_5s.mp4 -i audio_fixed.mp3 \
             -vf "subtitles=subtitles.srt:force_style='FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1'" \
             -c:v libx264 -c:a aac -map 0:v:0 -map 1:a:0 -shortest output_video.mp4
@@ -85,7 +80,6 @@ jobs:
           CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
           CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
         run: |
-          # Subir usando curl a Cloudinary
           curl -X POST \
             -F "file=@output_video.mp4" \
             -F "upload_preset=empire_marketing_videos" \
@@ -96,7 +90,6 @@ jobs:
 
       - name: Notify Empire server
         run: |
-          # Llamar a tu API para guardar la URL del video
           curl -X POST \
             -H "Content-Type: application/json" \
             -d "{\"jobId\":\"${{ env.JOB_ID }}\", \"videoUrl\":\"${{ env.VIDEO_URL }}\"}" \
