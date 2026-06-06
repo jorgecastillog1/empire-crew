@@ -355,20 +355,23 @@ async function publishCampaignToAllNetworks(campaign: CampaignData): Promise<num
 }
 
 // ============================================================
-// NUEVA FUNCIÓN: Disparar workflow en GitHub Actions
+// NUEVA FUNCIÓN: Disparar workflow en GitHub Actions con diagnóstico por Telegram
 // ============================================================
 async function triggerGitHubWorkflow(jobData: any) {
+  // Enviar diagnóstico de inicio
+  await executeTool('telegram_notify', { message: `🎬 [DIAGNÓSTICO] Iniciando llamada a GitHub Actions para producto: ${jobData.productName}` });
+  
   const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
   if (!GITHUB_TOKEN) {
-    console.error('❌ GITHUB_TOKEN no configurado en Vercel');
+    const errorMsg = '❌ GITHUB_TOKEN no configurado en Vercel';
+    console.error(errorMsg);
+    await executeTool('telegram_notify', { message: `❌ [DIAGNÓSTICO] ${errorMsg}` });
     await logOrchestratorAction('video:workflow:missing_token');
     return;
   }
 
-  // Cambia estos valores si tu usuario o repositorio son diferentes
   const owner = 'jorgecastillog1';
   const repo = 'empire-crew';
-
   const url = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/build-video.yml/dispatches`;
 
   const payload = {
@@ -377,6 +380,8 @@ async function triggerGitHubWorkflow(jobData: any) {
       jobData: JSON.stringify(jobData)
     }
   };
+
+  await executeTool('telegram_notify', { message: `📡 [DIAGNÓSTICO] Enviando petición a GitHub... URL: ${url}` });
 
   try {
     const response = await fetch(url, {
@@ -391,13 +396,20 @@ async function triggerGitHubWorkflow(jobData: any) {
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`GitHub API error: ${response.status} - ${errorText}`);
+      const errorMsg = `GitHub API error: ${response.status} - ${errorText}`;
+      console.error('❌', errorMsg);
+      await executeTool('telegram_notify', { message: `❌ [DIAGNÓSTICO] ${errorMsg}` });
+      throw new Error(errorMsg);
     }
 
-    console.log('✅ Workflow disparado correctamente');
+    const successMsg = `✅ Workflow disparado correctamente para producto: ${jobData.productName}`;
+    console.log(successMsg);
+    await executeTool('telegram_notify', { message: `✅ [DIAGNÓSTICO] ${successMsg}` });
     await logOrchestratorAction('video:workflow:triggered');
   } catch (error: any) {
-    console.error('❌ Error al disparar workflow:', error.message);
+    const errorMsg = `❌ Error al disparar workflow: ${error.message}`;
+    console.error(errorMsg);
+    await executeTool('telegram_notify', { message: `❌ [DIAGNÓSTICO] ${errorMsg}` });
     await logOrchestratorAction(`video:workflow:error:${error.message.slice(0, 80)}`);
   }
 }
@@ -440,7 +452,10 @@ export async function runMarketingCycle(): Promise<MarketingCycleLog> {
         affiliateUrl: firstProduct.affiliateUrl,
         timestamp: Date.now(),
       };
+      // Llamada a GitHub Actions con diagnóstico por Telegram
       await triggerGitHubWorkflow(videoJobData);
+    } else {
+      await executeTool('telegram_notify', { message: `⚠️ [DIAGNÓSTICO] No hay productos, no se dispara workflow` });
     }
 
     for (const product of bestProducts) {
