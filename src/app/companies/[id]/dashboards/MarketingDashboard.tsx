@@ -1,6 +1,7 @@
 'use client';
 // ─── MarketingDashboard.tsx ───────────────────────────────────────────────────
 // MODIFICADO: Añadida sección de Automatización (ciclo automático, estado, botón forzar)
+// AÑADIDO: Botón de prueba para generar video vía Kaggle
 // Se mantienen todas las herramientas manuales (copy, SEO, afiliados).
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -48,6 +49,10 @@ export default function MarketingDashboard({ company }: Props) {
   });
   const [statusLoading, setStatusLoading] = useState(true);
   const [forceCycleLoading, setForceCycleLoading] = useState(false);
+
+  // ========== NUEVO: Estado para prueba de video ==========
+  const [testVideoLoading, setTestVideoLoading] = useState(false);
+  const [testVideoResult, setTestVideoResult] = useState<{ jobId: string; status: string; message?: string } | null>(null);
 
   // ========== Funciones existentes ==========
   const fetchRobotLogs = useCallback(async () => {
@@ -172,6 +177,44 @@ Responde SOLO con este JSON (sin markdown, sin explicaciones):
     }
   };
 
+  // ========== NUEVA FUNCIÓN: Probar generación de video ==========
+  const testVideoGeneration = async () => {
+    setTestVideoLoading(true);
+    setTestVideoResult(null);
+    try {
+      const res = await fetch('/api/marketing/test-video', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      
+      if (data.success) {
+        setTestVideoResult({
+          jobId: data.jobId,
+          status: data.status,
+          message: `Job ${data.jobId} enviado. Espera el callback cuando el video esté listo.`
+        });
+        alert(`✅ Video job enviado: ${data.jobId}\nEl video aparecerá en Telegram cuando termine la generación.\nDashboard: ${data.kaggleUrl}/dashboard`);
+      } else {
+        setTestVideoResult({
+          jobId: 'error',
+          status: 'error',
+          message: data.error || 'Error desconocido'
+        });
+        alert(`❌ Error: ${data.error}`);
+      }
+    } catch (e: any) {
+      setTestVideoResult({
+        jobId: 'error',
+        status: 'error',
+        message: e.message
+      });
+      alert(`❌ Error de red: ${e.message}`);
+    } finally {
+      setTestVideoLoading(false);
+    }
+  };
+
   // ========== NUEVAS FUNCIONES PARA AUTOMATIZACIÓN ==========
   const fetchAutomationStatus = useCallback(async () => {
     try {
@@ -233,6 +276,39 @@ Responde SOLO con este JSON (sin markdown, sin explicaciones):
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+      {/* ─── BOTÓN DE PRUEBA DE VIDEO (NUEVO) ─────────────────────────────── */}
+      <div style={{ background: '#0d1117', border: '1px solid rgba(139,92,246,0.3)', borderRadius: 12, padding: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#8b5cf6' }}>🎬 Prueba de Video con Kaggle</div>
+          <button
+            onClick={testVideoGeneration}
+            disabled={testVideoLoading}
+            style={{
+              padding: '8px 20px',
+              borderRadius: 8,
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: 12,
+              fontWeight: 700,
+              background: testVideoLoading ? '#1e2433' : '#8b5cf6',
+              color: testVideoLoading ? '#8b949e' : '#fff',
+            }}
+          >
+            {testVideoLoading ? '⏳ Enviando...' : '🎬 Probar generación de video'}
+          </button>
+        </div>
+        <div style={{ fontSize: 11, color: '#8b949e' }}>
+          Este botón envía un prompt de prueba a Kaggle para verificar que la conexión funciona.
+          {testVideoResult && (
+            <div style={{ marginTop: 8, padding: 8, background: '#161b22', borderRadius: 6 }}>
+              <span style={{ color: testVideoResult.status === 'error' ? '#ff5050' : '#00c896' }}>
+                {testVideoResult.status === 'error' ? '❌' : '✅'} {testVideoResult.message}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* ─── KPIs (sin cambios) ───────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>

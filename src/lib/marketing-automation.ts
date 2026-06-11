@@ -1,7 +1,15 @@
 // src/lib/marketing-automation.ts
-// Versión definitiva y estable - SIN REMOTION
-// Funcionalidades: Hotmart, Pexels, Cloudinary, Telegram, Groq
-// El ciclo principal genera campañas y dispara worker en GitHub Actions para video
+// Versión definitiva y estable - CON INTEGRACIÓN CON KAGGLE PARA VIDEOS
+// Funcionalidades: 
+//   - Hotmart (búsqueda real)
+//   - Pexels (imagen)
+//   - Cloudinary
+//   - Telegram
+//   - Groq
+//   - Envío de prompts a Kaggle para generación de videos
+//
+// El ciclo principal genera campañas completas (copy, lead magnet, funnel) 
+// y ENVÍA los prompts a Kaggle para generar el video automáticamente.
 
 import { redis } from './redis';
 import { callLLM } from './orchestrator';
@@ -70,6 +78,12 @@ const HOTMART_CLIENT_SECRET = process.env.HOTMART_CLIENT_SECRET || '';
 const HOTMART_AFFILIATE_ID = process.env.HOTMART_AFFILIATE_ID || '';
 let hotmartAccessToken: string | null = null;
 let tokenExpiresAt = 0;
+
+// ============================================================
+// Configuración de Kaggle
+// ============================================================
+
+const KAGGLE_VIDEO_API_URL = process.env.KAGGLE_VIDEO_API_URL || '';
 
 // ============================================================
 // Helper: Autenticación Hotmart
@@ -178,28 +192,6 @@ async function searchPexelsImage(query: string): Promise<string> {
 }
 
 // ============================================================
-// Helper: Video de Pexels (búsqueda de clips)
-// ============================================================
-
-async function searchPexelsVideo(query: string): Promise<string> {
-  const PEXELS_API_KEY = process.env.PEXELS_API_KEY || '';
-  if (!PEXELS_API_KEY) return '';
-  try {
-    const res = await fetch(`https://api.pexels.com/videos/search?query=${encodeURIComponent(query)}&per_page=1&orientation=portrait`, {
-      headers: { Authorization: PEXELS_API_KEY },
-    });
-    if (!res.ok) throw new Error(`Pexels video error: ${res.status}`);
-    const data = await res.json();
-    const video = data.videos?.[0];
-    if (!video) return '';
-    const videoFile = video.video_files?.find((f: any) => f.quality === 'hd' || f.quality === 'sd');
-    return videoFile?.link || video.video_files?.[0]?.link || '';
-  } catch (error) {
-    return '';
-  }
-}
-
-// ============================================================
 // Helper: Scraping de plataforma (Hotmart real)
 // ============================================================
 
@@ -207,42 +199,11 @@ async function scrapePlatform(platform: string): Promise<AffiliateProduct[]> {
   logOrchestratorAction(`marketing:scraping:${platform}`);
   if (platform === 'hotmart') {
     try {
-      const hotmartProducts = await searchHotmartProducts('marketing');
-      if (hotmartProducts.length > 0) {
-        return hotmartProducts;
-      }
-      // Si Hotmart no devuelve nada, usar productos de prueba
-      logOrchestratorAction('marketing:hotmart:no_real_products, usando productos de prueba');
+      return await searchHotmartProducts('marketing');
     } catch (error: any) {
-      logOrchestratorAction(`marketing:hotmart_error:${error.message}, usando productos de prueba`);
+      logOrchestratorAction(`marketing:hotmart_error:${error.message}`);
+      return [];
     }
-    // Productos de prueba (para que el flujo continúe)
-    return [
-      {
-        id: 'test-1',
-        name: 'Curso de Marketing Digital Avanzado',
-        description: 'Aprende a vender en TikTok e Instagram',
-        price: 47,
-        commission: 50,
-        platform: 'hotmart',
-        affiliateUrl: 'https://hotmart.com/test',
-        imageUrl: '',
-        category: 'marketing',
-        rating: 4.5,
-      },
-      {
-        id: 'test-2',
-        name: 'Pack de Plantillas para Embudos',
-        description: 'Diseños profesionales para alta conversión',
-        price: 27,
-        commission: 60,
-        platform: 'hotmart',
-        affiliateUrl: 'https://hotmart.com/test2',
-        imageUrl: '',
-        category: 'marketing',
-        rating: 4.8,
-      },
-    ];
   }
   return [];
 }
@@ -355,67 +316,88 @@ async function publishCampaignToAllNetworks(campaign: CampaignData): Promise<num
 }
 
 // ============================================================
-// NUEVA FUNCIÓN: Disparar workflow en GitHub Actions con diagnóstico por Telegram
+// NUEVA FUNCIÓN: Enviar prompts a Kaggle para generar video
 // ============================================================
-async function triggerGitHubWorkflow(jobData: any) {
-  // Enviar diagnóstico de inicio
-  await executeTool('telegram_notify', { message: `🎬 [DIAGNÓSTICO] Iniciando llamada a GitHub Actions para producto: ${jobData.productName}` });
+
+async function triggerKaggleVideoGeneration(
+  product: AffiliateProduct, 
+  content: any,
+  jobId?: string
+): Promise<{ jobId: string; status: string; message?: string }> {
   
-  const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
-  if (!GITHUB_TOKEN) {
-    const errorMsg = '❌ GITHUB_TOKEN no configurado en Vercel';
-    console.error(errorMsg);
-    await executeTool('telegram_notify', { message: `❌ [DIAGNÓSTICO] ${errorMsg}` });
-    await logOrchestratorAction('video:workflow:missing_token');
-    return;
+  if (!KAGGLE_VIDEO_API_URL) {
+    console.error('❌ KAGGLE_VIDEO_API_URL no configurada en .env.local');
+    logOrchestratorAction('marketing:video:error:no_kaggle_url');
+    return { jobId: 'error', status: 'no_kaggle_url', message: 'KAGGLE_VIDEO_API_URL no configurada' };
   }
-
-  const owner = 'jorgecastillog1';
-  const repo = 'empire-crew';
-  const url = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/build-video.yml/dispatches`;
-
-  const payload = {
-    ref: 'main',
-    inputs: {
-      jobData: JSON.stringify(jobData)
+  
+  const finalJobId = jobId || `hotmart_${product.id}_${Date.now()}`;
+  const callbackUrl = `${process.env.NEXTAUTH_URL || 'https://empire-crew.vercel.app'}/api/marketing/video-callback`;
+  
+  // Construir escenas para el video usando el contenido generado
+  // Estructura optimizada para LTX Singularity
+  const scenes = [
+    {
+      prompt: `${content.hook} ${content.uniqueValueProp} Iluminación cálida, cámara lenta.`.slice(0, 250),
+      duration_sec: 5
+    },
+    {
+      prompt: `${content.fullCopy} Movimiento suave de cámara, expresión confiada.`.slice(0, 250),
+      duration_sec: 8
+    },
+    {
+      prompt: `${content.socialProof} ${content.urgentCallToAction} Cámara hace zoom, tono urgente.`.slice(0, 250),
+      duration_sec: 4
     }
-  };
-
-  await executeTool('telegram_notify', { message: `📡 [DIAGNÓSTICO] Enviando petición a GitHub... URL: ${url}` });
-
+  ];
+  
+  console.log(`📹 Enviando job ${finalJobId} a Kaggle...`);
+  logOrchestratorAction(`marketing:video:enviando:${finalJobId}`);
+  
   try {
-    const response = await fetch(url, {
+    const response = await fetch(`${KAGGLE_VIDEO_API_URL}/generate`, {
       method: 'POST',
-      headers: {
-        'Accept': 'application/vnd.github.v3+json',
-        'Authorization': `Bearer ${GITHUB_TOKEN}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload)
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        job_id: finalJobId,
+        scenes: scenes,
+        callback_url: callbackUrl
+      })
     });
-
+    
     if (!response.ok) {
       const errorText = await response.text();
-      const errorMsg = `GitHub API error: ${response.status} - ${errorText}`;
-      console.error('❌', errorMsg);
-      await executeTool('telegram_notify', { message: `❌ [DIAGNÓSTICO] ${errorMsg}` });
-      throw new Error(errorMsg);
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
     }
-
-    const successMsg = `✅ Workflow disparado correctamente para producto: ${jobData.productName}`;
-    console.log(successMsg);
-    await executeTool('telegram_notify', { message: `✅ [DIAGNÓSTICO] ${successMsg}` });
-    await logOrchestratorAction('video:workflow:triggered');
+    
+    const data = await response.json();
+    console.log(`✅ Video job encolado: ${finalJobId} - ${data.status}`);
+    logOrchestratorAction(`marketing:video:encolado:${finalJobId}`);
+    
+    // Guardar en Redis para seguimiento
+    await redis.set(`marketing:video:${finalJobId}`, JSON.stringify({
+      productId: product.id,
+      productName: product.name,
+      status: 'queued',
+      createdAt: Date.now(),
+      scenes: scenes.length
+    }));
+    
+    return { 
+      jobId: finalJobId, 
+      status: data.status || 'queued',
+      message: `Video encolado en Kaggle`
+    };
+    
   } catch (error: any) {
-    const errorMsg = `❌ Error al disparar workflow: ${error.message}`;
-    console.error(errorMsg);
-    await executeTool('telegram_notify', { message: `❌ [DIAGNÓSTICO] ${errorMsg}` });
-    await logOrchestratorAction(`video:workflow:error:${error.message.slice(0, 80)}`);
+    console.error(`❌ Error enviando a Kaggle: ${error.message}`);
+    logOrchestratorAction(`marketing:video:error:${error.message}`);
+    return { jobId: finalJobId, status: 'error', message: error.message };
   }
 }
 
 // ============================================================
-// CICLO PRINCIPAL (con disparo a GitHub Actions)
+// CICLO PRINCIPAL (con envío a Kaggle para videos)
 // ============================================================
 
 export async function runMarketingCycle(): Promise<MarketingCycleLog> {
@@ -440,29 +422,23 @@ export async function runMarketingCycle(): Promise<MarketingCycleLog> {
     const bestProducts = await filterProductsByAI(allProducts);
     productsFiltered = bestProducts.length;
 
-    // 🔥 Disparar worker de GitHub Actions (solo una vez por ciclo) con el primer producto
-    if (bestProducts.length > 0) {
-      const firstProduct = bestProducts[0];
-      const videoJobData = {
-        jobId: `video-${Date.now()}`,
-        productName: firstProduct.name,
-        productId: firstProduct.id,
-        productDescription: firstProduct.description,
-        imageUrl: firstProduct.imageUrl || '',
-        affiliateUrl: firstProduct.affiliateUrl,
-        timestamp: Date.now(),
-      };
-      // Llamada a GitHub Actions con diagnóstico por Telegram
-      await triggerGitHubWorkflow(videoJobData);
-    } else {
-      await executeTool('telegram_notify', { message: `⚠️ [DIAGNÓSTICO] No hay productos, no se dispara workflow` });
-    }
-
     for (const product of bestProducts) {
       try {
         const content = await generateCampaignContent(product);
         const imageUrl = await searchPexelsImage(product.name);
-        const videoUrl = '';  // El video se generará en GitHub Actions
+        
+        // 🔥 NUEVO: Enviar a Kaggle para generar el video
+        let videoUrl = '';
+        let videoJobId = '';
+        
+        if (KAGGLE_VIDEO_API_URL) {
+          const videoResult = await triggerKaggleVideoGeneration(product, content);
+          videoJobId = videoResult.jobId;
+          videoUrl = ''; // La URL vendrá en el callback cuando el video esté listo
+          console.log(`📹 Video job ${videoJobId} encolado, esperando callback...`);
+        } else {
+          logOrchestratorAction('marketing:video:skip:no_kaggle_url');
+        }
 
         const leadMagnetUrl = await uploadToCloudinary(content.leadMagnetMarkdown, `leadmagnet_${product.id}_${Date.now()}`, 'text/markdown');
         const funnelHtml = generateFunnelHtml(product, {
@@ -484,7 +460,7 @@ export async function runMarketingCycle(): Promise<MarketingCycleLog> {
           leadMagnetUrl,
           funnelUrl,
           imageUrl,
-          videoUrl,
+          videoUrl: videoUrl, // Se actualizará vía callback
           publishedAt: Date.now(),
           success: true,
         };
@@ -494,6 +470,7 @@ export async function runMarketingCycle(): Promise<MarketingCycleLog> {
         campaignsGenerated++;
         await redis.lpush('empire:marketing:campaigns', JSON.stringify(campaign));
         await redis.ltrim('empire:marketing:campaigns', 0, 99);
+        
       } catch (err: any) {
         errors.push(`Error con producto ${product.id}: ${err.message}`);
       }
