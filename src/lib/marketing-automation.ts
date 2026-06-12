@@ -218,21 +218,53 @@ async function searchPexelsImage(query: string): Promise<string> {
 async function scrapePlatform(platform: string): Promise<AffiliateProduct[]> {
   logOrchestratorAction(`marketing:scraping:${platform}`);
   if (platform === 'hotmart') {
-    // Tus productos afiliados manualmente
-    return [
-      {
-        id: 'Q106300997Y',
-        name: 'DESPIERTA: Un Viaje de Crecimiento Personal y Espiritual',
-        description: 'Un libro de crecimiento personal y espiritual',
-        price: 19.99,
-        commission: 50,
-        platform: 'hotmart',
-        affiliateUrl: 'https://go.hotmart.com/Q106300997Y?affiliate_id=1981002753',
-        imageUrl: '',
-        category: 'crecimiento personal',
-        rating: 5
+    try {
+      // Obtener token primero
+      const token = await getHotmartToken();
+      
+      // Buscar productos afiliados del usuario
+      const url = 'https://api.hotmart.com/affiliates/api/v1/products?pageSize=50';
+      
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Hotmart API error: ${response.status}`);
       }
-    ];
+      
+      const data = await response.json();
+      const items = data.items || data.data || [];
+      
+      if (!items.length) {
+        logOrchestratorAction('marketing:hotmart:no_products');
+        return [];
+      }
+      
+      const affiliateId = HOTMART_AFFILIATE_ID || 'sin_afiliado';
+      
+      return items.map((item: any) => ({
+        id: item.id || item.productId,
+        name: item.name,
+        description: item.description || item.shortDescription || '',
+        price: item.price?.amount || item.price || 0,
+        commission: item.commission?.percent || item.commission || 0,
+        platform: 'hotmart',
+        affiliateUrl: `https://go.hotmart.com/${item.id}?affiliate_id=${affiliateId}`,
+        imageUrl: item.imageUrl || '',
+        category: item.category || '',
+        rating: item.rating || 0
+      }));
+      
+    } catch (error: any) {
+      logOrchestratorAction(`marketing:hotmart_error:${error.message}`);
+      // Si falla la API, retorna array vacío (sin productos de prueba)
+      return [];
+    }
   }
   return [];
 }
