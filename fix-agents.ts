@@ -9,7 +9,7 @@ async function fixAgents() {
   
   // 1. Obtener los agentes de la empresa
   const companyRaw = await redis.get('empire:company:marketing-pro');
-  const company = JSON.parse(companyRaw);
+  const company = JSON.parse(companyRaw as string);
   
   console.log(`📋 Agentes encontrados: ${company.agents.length}`);
   
@@ -23,7 +23,7 @@ async function fixAgents() {
       companyId: companyId,
       name: englishName,
       role: agent.role,
-      status: 'idle',
+      status: 'idle' as const,
       model: agent.model,
       systemPrompt: `Eres experto en ${agent.role}.`,
       capabilities: [agent.role],
@@ -42,7 +42,7 @@ async function fixAgents() {
       inheritedKnowledge: [],
       errors: [],
       wins: [],
-      status_lifecycle: 'alive',
+      status_lifecycle: 'alive' as const,
       tokenUsage: 0,
       weeklyTokenBudget: 500000,
       version: 1,
