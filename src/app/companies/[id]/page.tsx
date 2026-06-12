@@ -59,27 +59,45 @@ function KpiGrid({ items }: { items: { label: string; value: string; color: stri
 // ─── Agent Card ───────────────────────────────────────────────────────────────
 function AgentCard({ agent, color }: { agent: Agent; color: string }) {
   const [expanded, setExpanded] = useState(false);
-  const sc = STATUS_COLOR[agent.status] ?? '#8b949e';
+  
+  // Mapeo de estados a colores y textos
+  const statusConfig = {
+    idle: { color: '#8b949e', text: '💤 INACTIVO', bg: 'rgba(139,148,158,0.1)' },
+    analyzing: { color: '#f0b429', text: '🟡 ANALIZANDO', bg: 'rgba(240,180,41,0.1)' },
+    executing: { color: '#00c896', text: '🟢 ACTIVO', bg: 'rgba(0,200,150,0.1)' },
+    error: { color: '#ff5050', text: '🔴 ERROR', bg: 'rgba(255,80,80,0.1)' },
+  };
+  
+  const config = statusConfig[agent.status] || statusConfig.idle;
+  
   return (
-    <div onClick={() => setExpanded(!expanded)} style={{
-      ...CARD, cursor: 'pointer', transition: 'all 0.2s', position: 'relative', overflow: 'hidden',
-      border: `1px solid ${expanded ? color : '#1e2433'}`,
+    <div style={{
+      ...CARD,
+      borderLeft: `4px solid ${config.color}`,
+      background: config.bg,
+      cursor: 'pointer',
+      transition: 'all 0.2s'
     }}>
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: expanded ? `linear-gradient(90deg, ${color}, transparent)` : 'transparent' }} />
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#e6edf3', marginBottom: 3 }}>{agent.name}</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#e6edf3' }}>{agent.name}</div>
           <div style={{ fontSize: 11, color: '#8b949e' }}>{agent.role}</div>
         </div>
-        <span style={{ fontSize: 10, fontWeight: 700, color: sc, background: `${sc}15`, border: `1px solid ${sc}30`, padding: '3px 8px', borderRadius: 6, textTransform: 'uppercase', letterSpacing: 1 }}>{agent.status}</span>
+        <div style={{
+          fontSize: 10,
+          fontWeight: 700,
+          color: config.color,
+          background: `${config.color}20`,
+          padding: '4px 10px',
+          borderRadius: 20,
+          border: `1px solid ${config.color}40`
+        }}>
+          {config.text}
+        </div>
       </div>
       {expanded && (
-        <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #1e2433', display: 'flex', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <div style={{ width: 6, height: 6, borderRadius: '50%', background: sc, boxShadow: `0 0 8px ${sc}` }} />
-            <span style={{ fontSize: 11, color: '#8b949e' }}>{agent.model}</span>
-          </div>
-          <span style={{ fontSize: 10, color }}>⚡ Telemetría Activa</span>
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #1e2433', fontSize: 11, color: '#8b949e' }}>
+          Modelo: {agent.model}
         </div>
       )}
     </div>
