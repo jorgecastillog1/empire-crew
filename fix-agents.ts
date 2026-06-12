@@ -1,21 +1,21 @@
-﻿// fix-agents.ts
+// fix-agents.ts
 import { redis } from './src/lib/redis.js';
 import { saveAgentState, DEFAULT_CLEAR } from './src/lib/orchestrator.js';
 
 const companyId = 'marketing-pro';
 
 async function fixAgents() {
-  console.log('🔧 Corrigiendo agentes...');
+  console.log('?? Corrigiendo agentes...');
   
   // 1. Obtener los agentes de la empresa
   const companyRaw = await redis.get('empire:company:marketing-pro');
-  const company = JSON.parse(companyRaw as string);
+  const company = typeof companyRaw === 'string' ? JSON.parse(companyRaw) : companyRaw as any;
   
-  console.log(`📋 Agentes encontrados: ${company.agents.length}`);
+  console.log(`?? Agentes encontrados: ${company.agents.length}`);
   
   // 2. Para cada agente, crear/actualizar SuperAgente con el formato correcto
   for (const agent of company.agents) {
-    // El nombre correcto en inglés (como espera el código)
+    // El nombre correcto en ingl�s (como espera el c�digo)
     const englishName = agent.name.replace('Agente-', 'Agent-');
     
     const superAgent = {
@@ -50,12 +50,12 @@ async function fixAgents() {
     
     // Guardar con la key correcta (agente:marketing-pro:Agent-XXX)
     await saveAgentState(superAgent);
-    console.log(`✅ ${englishName} → guardado en agente:${companyId}:${englishName}`);
+    console.log(`? ${englishName} ? guardado en agente:${companyId}:${englishName}`);
   }
   
   // 3. Verificar que se guardaron
   const keys = await redis.keys('agente:marketing-pro:*');
-  console.log(`\n🎉 Total de agentes en Redis: ${keys.length}`);
+  console.log(`\n?? Total de agentes en Redis: ${keys.length}`);
   keys.forEach(k => console.log(`   ${k}`));
   
   process.exit(0);
