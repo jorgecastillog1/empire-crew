@@ -28,15 +28,13 @@ export function useCompanyData(id: string): UseCompanyDataReturn {
     try {
       setError(null);
       const [companiesRes, diagRes, logsRes] = await Promise.allSettled([
-        fetch('/api/companies').then(r => { if (!r.ok) throw new Error('companies'); return r.json(); }),
+        fetch(/api/companies/+id).then(r => { if (!r.ok) throw new Error('companies'); return r.json(); }),
         fetch('/api/supervisor?action=diagnosis').then(r => { if (!r.ok) throw new Error('diagnosis'); return r.json(); }),
         fetch('/api/orchestrator?action=log').then(r => { if (!r.ok) throw new Error('log'); return r.json(); }),
       ]);
 
       const found: Company | null =
-        companiesRes.status === 'fulfilled'
-          ? (companiesRes.value as Company[]).find((c) => c.id === id) ?? null
-          : null;
+        companiesRes.status === 'fulfilled' ? companiesRes.value as Company : null;
 
       setCompany(found ?? null);
       companyTypeRef.current = found?.type ?? null;
