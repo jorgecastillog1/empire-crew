@@ -219,7 +219,7 @@ async function scrapePlatform(platform: string): Promise<AffiliateProduct[]> {
   logOrchestratorAction(`marketing:scraping:${platform}`);
   if (platform === 'hotmart') {
     try {
-      return await searchHotmartProducts('marketing');
+      return await searchHotmartProducts('');
     } catch (error: any) {
       logOrchestratorAction(`marketing:hotmart_error:${error.message}`);
       // SIN FALLBACK - propagamos el error para que se vea la causa real
