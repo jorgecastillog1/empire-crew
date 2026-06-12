@@ -184,7 +184,7 @@ async function searchPexelsImage(query: string): Promise<string> {
 }
 
 // ============================================================
-// Helper: Scraping de plataforma (Hotmart real con fallback a productos de prueba)
+// Helper: Scraping de plataforma (Hotmart real SIN fallback)
 // ============================================================
 
 async function scrapePlatform(platform: string): Promise<AffiliateProduct[]> {
@@ -194,33 +194,8 @@ async function scrapePlatform(platform: string): Promise<AffiliateProduct[]> {
       return await searchHotmartProducts('marketing');
     } catch (error: any) {
       logOrchestratorAction(`marketing:hotmart_error:${error.message}`);
-      // PRODUCTOS DE PRUEBA (fallback cuando Hotmart falla)
-      return [
-        {
-          id: 'test-1',
-          name: 'Curso de Marketing Digital Avanzado',
-          description: 'Aprende a vender en TikTok e Instagram',
-          price: 47,
-          commission: 50,
-          platform: 'hotmart',
-          affiliateUrl: 'https://hotmart.com/test',
-          imageUrl: '',
-          category: 'marketing',
-          rating: 4.5
-        },
-        {
-          id: 'test-2',
-          name: 'Pack de Plantillas para Embudos',
-          description: 'Diseños profesionales para alta conversión',
-          price: 27,
-          commission: 60,
-          platform: 'hotmart',
-          affiliateUrl: 'https://hotmart.com/test2',
-          imageUrl: '',
-          category: 'marketing',
-          rating: 4.8
-        }
-      ];
+      // SIN FALLBACK - propagamos el error para que se vea la causa real
+      throw new Error(`Hotmart API error: ${error.message}`);
     }
   }
   return [];
