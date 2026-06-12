@@ -1,6 +1,7 @@
 // src/lib/marketing-automation.ts
 // Versión definitiva y estable - CON INTEGRACIÓN CON KAGGLE PARA VIDEOS
 // MODIFICADO: Actualiza el estado de los agentes en tiempo real (analyzing/executing/idle)
+// Los nombres de agentes coinciden con los guardados en Redis (español)
 
 import { redis } from './redis';
 import { callLLM } from './orchestrator';
@@ -416,11 +417,15 @@ async function triggerKaggleVideoGeneration(
 async function updateAgentStatus(agentName: string, status: 'idle' | 'analyzing' | 'executing' | 'deliberating' | 'vetoed'): Promise<void> {
   try {
     const { loadAgentState, saveAgentState } = await import('./orchestrator');
+    // El ID del agente en Redis es el nombre exacto (ej: "Agent-Ad-Creative")
     const agent = await loadAgentState('marketing-pro', agentName);
     if (agent) {
       agent.status = status;
       await saveAgentState(agent);
       await logOrchestratorAction(`marketing:agent:${agentName}:${status}`);
+      console.log(`📊 Agente ${agentName} → ${status}`);
+    } else {
+      console.log(`⚠️ Agente no encontrado: ${agentName}`);
     }
   } catch (e) {
     console.error(`Error actualizando estado de ${agentName}:`, e);
@@ -454,6 +459,7 @@ export async function runMarketingCycle(): Promise<MarketingCycleLog> {
     'Agent-Video-Producer'
   ];
   
+  console.log('🟡 Iniciando ciclo de marketing...');
   for (const name of agentNames) {
     await updateAgentStatus(name, 'analyzing');
   }
@@ -463,6 +469,7 @@ export async function runMarketingCycle(): Promise<MarketingCycleLog> {
     // PASO 2: Agent-Affiliate-Scout busca productos
     // ============================================================
     await updateAgentStatus('Agent-Affiliate-Scout', 'executing');
+    console.log('🔍 Buscando productos afiliados...');
     
     const platforms = ['hotmart'];
     let allProducts: AffiliateProduct[] = [];
@@ -475,16 +482,18 @@ export async function runMarketingCycle(): Promise<MarketingCycleLog> {
         errors.push(`Scraping ${platform}: ${err.message}`);
       }
     }
-    
+    console.log(`📦 Productos encontrados: ${productsFound}`);
     await updateAgentStatus('Agent-Affiliate-Scout', 'analyzing');
     
     // ============================================================
     // PASO 3: Agent-SEO-Dominator filtra productos
     // ============================================================
     await updateAgentStatus('Agent-SEO-Dominator', 'executing');
+    console.log('🎯 Filtrando mejores productos...');
     
     const bestProducts = await filterProductsByAI(allProducts);
     productsFiltered = bestProducts.length;
+    console.log(`📌 Productos filtrados: ${productsFiltered}`);
     
     await updateAgentStatus('Agent-SEO-Dominator', 'analyzing');
     
@@ -493,13 +502,17 @@ export async function runMarketingCycle(): Promise<MarketingCycleLog> {
     // ============================================================
     for (const product of bestProducts) {
       try {
+        console.log(`\n📹 Procesando producto: ${product.name}`);
+        
         // 4.1 Agent-Neuro-Copywriter genera contenido
         await updateAgentStatus('Agent-Neuro-Copywriter', 'executing');
+        console.log('✍️ Generando copy...');
         const content = await generateCampaignContent(product);
         await updateAgentStatus('Agent-Neuro-Copywriter', 'analyzing');
         
         // 4.2 Agent-Ad-Creative busca imagen
         await updateAgentStatus('Agent-Ad-Creative', 'executing');
+        console.log('🖼️ Buscando imagen...');
         const imageUrl = await searchPexelsImage(product.name);
         await updateAgentStatus('Agent-Ad-Creative', 'analyzing');
         
@@ -509,6 +522,7 @@ export async function runMarketingCycle(): Promise<MarketingCycleLog> {
         
         if (KAGGLE_VIDEO_API_URL) {
           await updateAgentStatus('Agent-Video-Producer', 'executing');
+          console.log('🎬 Enviando a Kaggle...');
           const videoResult = await triggerKaggleVideoGeneration(product, content);
           videoJobId = videoResult.jobId;
           videoUrl = '';
@@ -520,6 +534,7 @@ export async function runMarketingCycle(): Promise<MarketingCycleLog> {
         
         // 4.4 Agent-Funnel-Architect construye funnel
         await updateAgentStatus('Agent-Funnel-Architect', 'executing');
+        console.log('🏗️ Construyendo funnel...');
         const leadMagnetUrl = await uploadToCloudinary(content.leadMagnetMarkdown, `leadmagnet_${product.id}_${Date.now()}`, 'text/markdown');
         const funnelHtml = generateFunnelHtml(product, {
           hook: content.hook,
@@ -533,6 +548,7 @@ export async function runMarketingCycle(): Promise<MarketingCycleLog> {
         
         // 4.5 Agent-Campaign-Automator publica
         await updateAgentStatus('Agent-Campaign-Automator', 'executing');
+        console.log('📢 Publicando campaña...');
         
         const campaign: CampaignData = {
           product: { ...product, imageUrl, videoUrl },
@@ -556,18 +572,22 @@ export async function runMarketingCycle(): Promise<MarketingCycleLog> {
         await redis.ltrim('empire:marketing:campaigns', 0, 99);
         
         await updateAgentStatus('Agent-Campaign-Automator', 'analyzing');
+        console.log(`✅ Campaña generada para: ${product.name}`);
         
       } catch (err: any) {
         errors.push(`Error con producto ${product.id}: ${err.message}`);
+        console.error(`❌ Error: ${err.message}`);
       }
     }
   } catch (err: any) {
     errors.push(`Ciclo fallido: ${err.message}`);
+    console.error(`❌ Ciclo fallido: ${err.message}`);
   }
   
   // ============================================================
   // PASO 5: Poner todos los agentes en estado "idle"
   // ============================================================
+  console.log('💤 Finalizando ciclo, agentes a idle...');
   for (const name of agentNames) {
     await updateAgentStatus(name, 'idle');
   }
@@ -585,5 +605,7 @@ export async function runMarketingCycle(): Promise<MarketingCycleLog> {
   await writeProof('marketing:cycle', { startTime }, logEntry, 'marketing-automation', 'marketing-pro');
   await logOrchestratorAction(`marketing:cycle:done: prods=${productsFound}, campaigns=${campaignsGenerated}, pub=${published}, errors=${errors.length}`);
 
+  console.log(`\n📊 RESUMEN: Productos: ${productsFound}, Filtrados: ${productsFiltered}, Campañas: ${campaignsGenerated}, Publicaciones: ${published}, Errores: ${errors.length}`);
+  
   return logEntry;
 }
