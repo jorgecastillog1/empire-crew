@@ -102,7 +102,7 @@ export async function addAgentToCompany(companyId: string, agent: Agent): Promis
   await redis.set(KEY.company(companyId), JSON.stringify(company));
   const agentId = companyId + ':' + agent.name;
   const independentAgent = { ...agent, id: agentId, companyId };
-  await redis.set(KEY.agent(agentId), JSON.stringify(independentAgent));
+  await redis.set(`agente:${companyId}:${agent.name}`, JSON.stringify(independentAgent));
   await redis.sadd(KEY.companyAgents(companyId), agentId);
   return company;
 }
