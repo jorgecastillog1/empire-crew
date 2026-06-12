@@ -94,6 +94,7 @@ async function getHotmartToken(): Promise<string> {
     headers: {
       'Authorization': `Basic ${auth}`,
       'Content-Type': 'application/x-www-form-urlencoded',
+      'Accept': 'application/json'
     },
     body: 'grant_type=client_credentials',
   });
@@ -124,7 +125,11 @@ async function searchHotmartProducts(query: string = ''): Promise<AffiliateProdu
   console.log(`🔍 [HOTMART DEBUG] URL: ${url}`);
   
   const response = await fetch(url, {
-    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    headers: { 
+      'Authorization': `Bearer ${token}`, 
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    },
   });
   
   console.log(`🔍 [HOTMART DEBUG] Response status: ${response.status} ${response.statusText}`);
