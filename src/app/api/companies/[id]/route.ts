@@ -33,8 +33,8 @@ export async function GET(
               try {
                 const superAgent =
                   typeof superRaw === 'string' ? JSON.parse(superRaw) : superRaw;
-                if (superAgent?.estado) {
-                  return { ...agent, status: superAgent.estado };
+                if (superAgent?.status) {
+                  return { ...agent, status: superAgent.status };
                 }
               } catch {
                 // ignorar y probar siguiente candidato
