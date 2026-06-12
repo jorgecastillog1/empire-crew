@@ -439,11 +439,13 @@ export async function callLLM(opts: LLMOptions & { companyId?: string }): Promis
 // ============================================================
 
 export async function saveAgentState(agent: SuperAgent): Promise<void> {
-  await redis.set('agent:' + agent.companyId + ':' + agent.id, JSON.stringify(agent), { ex: 86400 * 30 });
+  // Cambiar 'agent:' por 'agente:'
+  await redis.set('agente:' + agent.companyId + ':' + agent.id, JSON.stringify(agent), { ex: 86400 * 30 });
 }
 
 export async function loadAgentState(companyId: string, agentId: string): Promise<SuperAgent | null> {
-  const raw = await redis.get<string>('agent:' + companyId + ':' + agentId);
+  // Cambiar 'agent:' por 'agente:'
+  const raw = await redis.get<string>('agente:' + companyId + ':' + agentId);
   if (!raw) return null;
   try { return typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { return null; }
 }
