@@ -218,13 +218,21 @@ async function searchPexelsImage(query: string): Promise<string> {
 async function scrapePlatform(platform: string): Promise<AffiliateProduct[]> {
   logOrchestratorAction(`marketing:scraping:${platform}`);
   if (platform === 'hotmart') {
-    try {
-      return await searchHotmartProducts('');
-    } catch (error: any) {
-      logOrchestratorAction(`marketing:hotmart_error:${error.message}`);
-      // SIN FALLBACK - propagamos el error para que se vea la causa real
-      throw new Error(`Hotmart API error: ${error.message}`);
-    }
+    // Tus productos afiliados manualmente
+    return [
+      {
+        id: 'Q106300997Y',
+        name: 'DESPIERTA: Un Viaje de Crecimiento Personal y Espiritual',
+        description: 'Un libro de crecimiento personal y espiritual',
+        price: 19.99,
+        commission: 50,
+        platform: 'hotmart',
+        affiliateUrl: 'https://go.hotmart.com/Q106300997Y?affiliate_id=1981002753',
+        imageUrl: '',
+        category: 'crecimiento personal',
+        rating: 5
+      }
+    ];
   }
   return [];
 }
