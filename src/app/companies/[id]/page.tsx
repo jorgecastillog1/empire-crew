@@ -9,6 +9,7 @@
 //   6. EmpireFactory3DToggle lazy-loaded (solo cuando el usuario lo pide)
 //   7. Código ~40% más corto gracias a la modularización
 //   8. NUEVO: Botón de encendido/apagado en la cabecera (Paso 5)
+//   9. MODIFICADO: AgentCard con indicador de estado visual claro
 
 import { useParams, useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
@@ -56,31 +57,53 @@ function KpiGrid({ items }: { items: { label: string; value: string; color: stri
   );
 }
 
-// ─── Agent Card ───────────────────────────────────────────────────────────────
+// ─── Mapeo de estados a configuraciones visuales ─────────────────────────────
+const STATUS_CONFIG: Record<string, { color: string; text: string; bg: string; borderColor: string }> = {
+  idle: { 
+    color: '#8b949e', 
+    text: '💤 INACTIVO', 
+    bg: 'rgba(139,148,158,0.05)',
+    borderColor: '#8b949e'
+  },
+  analyzing: { 
+    color: '#f0b429', 
+    text: '🟡 ANALIZANDO', 
+    bg: 'rgba(240,180,41,0.08)',
+    borderColor: '#f0b429'
+  },
+  executing: { 
+    color: '#00c896', 
+    text: '🟢 ACTIVO', 
+    bg: 'rgba(0,200,150,0.08)',
+    borderColor: '#00c896'
+  },
+  error: { 
+    color: '#ff5050', 
+    text: '🔴 ERROR', 
+    bg: 'rgba(255,80,80,0.08)',
+    borderColor: '#ff5050'
+  },
+};
+
+// ─── Agent Card MEJORADA con indicador de estado visual claro ────────────────
 function AgentCard({ agent, color }: { agent: Agent; color: string }) {
   const [expanded, setExpanded] = useState(false);
-  
-  // Mapeo de estados a colores y textos
-  const statusConfig = {
-    idle: { color: '#8b949e', text: '💤 INACTIVO', bg: 'rgba(139,148,158,0.1)' },
-    analyzing: { color: '#f0b429', text: '🟡 ANALIZANDO', bg: 'rgba(240,180,41,0.1)' },
-    executing: { color: '#00c896', text: '🟢 ACTIVO', bg: 'rgba(0,200,150,0.1)' },
-    error: { color: '#ff5050', text: '🔴 ERROR', bg: 'rgba(255,80,80,0.1)' },
-  };
-  
-  const config = statusConfig[agent.status] || statusConfig.idle;
+  const status = agent.status || 'idle';
+  const config = STATUS_CONFIG[status] || STATUS_CONFIG.idle;
   
   return (
-    <div style={{
+    <div onClick={() => setExpanded(!expanded)} style={{
       ...CARD,
+      cursor: 'pointer',
+      transition: 'all 0.2s',
+      position: 'relative',
+      overflow: 'hidden',
       borderLeft: `4px solid ${config.color}`,
       background: config.bg,
-      cursor: 'pointer',
-      transition: 'all 0.2s'
     }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#e6edf3' }}>{agent.name}</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#e6edf3', marginBottom: 3 }}>{agent.name}</div>
           <div style={{ fontSize: 11, color: '#8b949e' }}>{agent.role}</div>
         </div>
         <div style={{
@@ -88,16 +111,21 @@ function AgentCard({ agent, color }: { agent: Agent; color: string }) {
           fontWeight: 700,
           color: config.color,
           background: `${config.color}20`,
-          padding: '4px 10px',
+          border: `1px solid ${config.color}40`,
+          padding: '4px 12px',
           borderRadius: 20,
-          border: `1px solid ${config.color}40`
+          letterSpacing: 0.5,
         }}>
           {config.text}
         </div>
       </div>
       {expanded && (
-        <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #1e2433', fontSize: 11, color: '#8b949e' }}>
-          Modelo: {agent.model}
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #1e2433', display: 'flex', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: config.color, boxShadow: `0 0 8px ${config.color}` }} />
+            <span style={{ fontSize: 11, color: '#8b949e' }}>{agent.model}</span>
+          </div>
+          <span style={{ fontSize: 10, color }}>⚡ Telemetría Activa</span>
         </div>
       )}
     </div>
@@ -235,7 +263,7 @@ export default function CompanyDashboard() {
   const id = params?.id as string;
   const { company, diagnosis, logs, tradingMetrics, loading, error, refetch } = useCompanyData(id);
   const [allCompanies, setAllCompanies] = useState<any[]>([]);
-  const [updatingEnabled, setUpdatingEnabled] = useState(false); // ← NUEVO: para mostrar carga al cambiar estado
+  const [updatingEnabled, setUpdatingEnabled] = useState(false);
   useEffect(() => {
     fetch('/api/companies').then(r => r.json()).then(data => {
       if (Array.isArray(data)) setAllCompanies(data);
@@ -247,7 +275,6 @@ export default function CompanyDashboard() {
   const [saving, setSaving] = useState(false);
   const cfg = company ? (TYPE_CONFIG[company.type] ?? DEFAULT_THEME) : DEFAULT_THEME;
 
-  // ─── NUEVO: Función para cambiar el estado enabled de la empresa actual ───
   const toggleCompanyEnabled = async () => {
     if (!company) return;
     setUpdatingEnabled(true);
@@ -259,7 +286,7 @@ export default function CompanyDashboard() {
         body: JSON.stringify({ enabled: newEnabled }),
       });
       if (res.ok) {
-        await refetch(); // Recargar los datos de la empresa
+        await refetch();
       } else {
         console.error('Error al actualizar estado');
       }
@@ -304,12 +331,11 @@ export default function CompanyDashboard() {
     </div>
   );
 
-  // Prepara los datos de nodos para la vista 3D
   const factoryNodes = [company].map(c => ({
     id: c.id,
     name: c.name,
     type: c.type,
-    health: 0.85, // puedes calcular esto desde diagnosis
+    health: 0.85,
     agents: c.agents.length,
   }));
 
@@ -318,7 +344,7 @@ export default function CompanyDashboard() {
   return (
     <div style={{ padding: '24px clamp(12px, 4vw, 32px)', background: '#010409', minHeight: '100vh', color: '#e6edf3' }}>
 
-      {/* Header con botón de encendido/apagado NUEVO */}
+      {/* Header con botón de encendido/apagado */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 32, paddingBottom: 24, borderBottom: `1px solid ${cfg.border}`, flexWrap: 'wrap', gap: 16 }}>
         <div>
           <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 2, color: cfg.color, background: cfg.bg, border: `1px solid ${cfg.border}`, padding: '4px 12px', borderRadius: 6 }}>
@@ -332,7 +358,6 @@ export default function CompanyDashboard() {
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          {/* Botón de encendido/apagado NUEVO */}
           <button
             onClick={toggleCompanyEnabled}
             disabled={updatingEnabled}
@@ -366,8 +391,7 @@ export default function CompanyDashboard() {
         </div>
       </div>
 
-      {/* Dashboard por tipo (los sub-dashboards de Cine y Marketing se mantienen igual) 
-          Si la empresa está apagada, mostramos un mensaje en lugar de los dashboards */}
+      {/* Dashboard por tipo */}
       {!isCompanyEnabled ? (
         <div style={{ background: '#0d1117', border: '1px solid #ff5050', borderRadius: 12, padding: 32, textAlign: 'center' }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
@@ -391,18 +415,18 @@ export default function CompanyDashboard() {
         </>
       )}
 
-      {/* Tiempo real (si la empresa está apagada, igual mostramos salud y logs? Sí, para diagnóstico) */}
+      {/* Tiempo real */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16, marginTop: 24 }}>
         <HealthPanel diagnosis={diagnosis} />
         <LogsPanel logs={logs} />
       </div>
 
-      {/* Copiloto (también visible aunque apagada, para consultas) */}
+      {/* Copiloto */}
       <div style={{ marginTop: 24 }}>
         <CopilotPanel company={company} />
       </div>
 
-      {/* Consola de Agentes (visible aunque apagada, pero se pueden ver los agentes) */}
+      {/* Consola de Agentes */}
       <div style={{ marginTop: 24 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
           <h2 style={{ fontSize: 16, fontWeight: 700, color: '#e6edf3', margin: 0 }}>
@@ -437,7 +461,7 @@ export default function CompanyDashboard() {
           </form>
         )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
           {company.agents.map(agent => <AgentCard key={agent.name} agent={agent} color={cfg.color} />)}
         </div>
       </div>
