@@ -13,14 +13,13 @@ export const KEY = {
   company: (id: string) => `empire:company:${id}`,
   companyAgents: (id: string) => `empire:company:${id}:agents`,
   companyMetrics: (id: string) => `empire:company:${id}:metrics`,
-  agent: (id: string) => `empire:agent:${id}`,
+  agent: (id: string) => `agente:${id}`,  // ✅ CORREGIDO
   groqAccounts: 'empire:groq:accounts',
   tavilyAccounts: 'empire:tavily:accounts',
   rateLimitGroq: (account: string) => `empire:ratelimit:groq:${account}`,
 };
 
 export async function getAvailableGroqKey(): Promise<string> {
-  // Primero intenta desde Redis
   try {
     const accounts = await redis.lrange(KEY.groqAccounts, 0, -1);
     if (accounts && accounts.length > 0) {
@@ -32,7 +31,6 @@ export async function getAvailableGroqKey(): Promise<string> {
     }
   } catch {}
 
-  // Fallback a .env.local
   const envKey = process.env.GROQ_API_KEY;
   if (envKey) return envKey;
 
