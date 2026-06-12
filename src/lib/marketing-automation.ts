@@ -112,23 +112,43 @@ async function getHotmartToken(): Promise<string> {
 // ============================================================
 
 async function searchHotmartProducts(query: string = ''): Promise<AffiliateProduct[]> {
+  console.log(`🔍 [HOTMART DEBUG] Iniciando búsqueda...`);
+  console.log(`🔍 [HOTMART DEBUG] Query: "${query}"`);
+  
   const token = await getHotmartToken();
+  console.log(`🔍 [HOTMART DEBUG] Token obtenido: ${token ? 'OK' : 'VACIO'}`);
+  
   let url = 'https://api.hotmart.com/products/api/v2/products?product_status=ACTIVE&max_results=10';
   if (query) url += `&name=${encodeURIComponent(query)}`;
+  
+  console.log(`🔍 [HOTMART DEBUG] URL: ${url}`);
+  
   const response = await fetch(url, {
     headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
   });
+  
+  console.log(`🔍 [HOTMART DEBUG] Response status: ${response.status} ${response.statusText}`);
+  
   if (!response.ok) {
-    throw new Error(`Hotmart API error: ${response.status}`);
+    const errorText = await response.text();
+    console.error(`❌ [HOTMART DEBUG] Error body: ${errorText}`);
+    throw new Error(`Hotmart API error: ${response.status} - ${errorText}`);
   }
+  
   const data = await response.json();
+  console.log(`🔍 [HOTMART DEBUG] Data recibida, items: ${data.items?.length || data.data?.length || 0}`);
+  
   const items = data.items || data.data || [];
   if (!items.length) {
+    console.warn(`⚠️ [HOTMART DEBUG] No se encontraron productos`);
     logOrchestratorAction('marketing:hotmart:no_products');
     return [];
   }
+  
   const affiliateId = HOTMART_AFFILIATE_ID || 'sin_afiliado';
-  return items.map((item: any) => {
+  console.log(`🔍 [HOTMART DEBUG] Affiliate ID: ${affiliateId}`);
+  
+  const products = items.map((item: any) => {
     const productId = item.id?.toString() || item.productId?.toString();
     let affiliateUrl = `https://hotmart.com/product/${productId}?affiliate_id=${affiliateId}`;
     if (!productId || affiliateId === 'sin_afiliado') {
@@ -147,6 +167,9 @@ async function searchHotmartProducts(query: string = ''): Promise<AffiliateProdu
       rating: item.rating || 0,
     };
   });
+  
+  console.log(`✅ [HOTMART DEBUG] Productos procesados: ${products.length}`);
+  return products;
 }
 
 // ============================================================
