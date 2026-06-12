@@ -439,12 +439,12 @@ export async function callLLM(opts: LLMOptions & { companyId?: string }): Promis
 // ============================================================
 
 export async function saveAgentState(agent: SuperAgent): Promise<void> {
-  // Cambiar 'agent:' por 'agente:'
+  // Usar 'agente:' para coincidir con Redis (español)
   await redis.set('agente:' + agent.companyId + ':' + agent.id, JSON.stringify(agent), { ex: 86400 * 30 });
 }
 
 export async function loadAgentState(companyId: string, agentId: string): Promise<SuperAgent | null> {
-  // Cambiar 'agent:' por 'agente:'
+  // Usar 'agente:' para coincidir con Redis (español)
   const raw = await redis.get<string>('agente:' + companyId + ':' + agentId);
   if (!raw) return null;
   try { return typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { return null; }
@@ -497,9 +497,10 @@ async function promoteBasicToSuperAgent(
 }
 
 export async function listAgents(companyId: string): Promise<SuperAgent[]> {
-  // 1. SuperAgentes ya existentes
-  const superKeys = await redis.keys('agent:' + companyId + ':*');
+  // 1. SuperAgents almacenados en Redis
+  const superKeys = await redis.keys('agente:' + companyId + ':*');
   const agents: SuperAgent[] = [];
+  
   for (const key of superKeys) {
     const raw = await redis.get<string>(key);
     if (!raw) continue;
@@ -508,7 +509,7 @@ export async function listAgents(companyId: string): Promise<SuperAgent[]> {
     } catch {}
   }
 
-  // 2. Agentes básicos creados por UI (clave empire:agent:${companyId}:nombre)
+  // 2. Agentes básicos creados por UI (este bloque DEBE estar DENTRO de la función)
   const basicKeys = await redis.keys('empire:agent:*');
   const prefix = companyId + ':';
   
@@ -520,8 +521,7 @@ export async function listAgents(companyId: string): Promise<SuperAgent[]> {
     if (!raw) continue;
     try {
       const basic = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      // Verificar si ya existe como SuperAgente (para no duplicar)
-      const alreadySuper = agents.some(a => a.id === basic.id || a.name === basic.name);
+      const alreadySuper = agents.some((a: SuperAgent) => a.id === basic.id || a.name === basic.name);
       if (!alreadySuper) {
         const superAgent = await promoteBasicToSuperAgent(basic.id, companyId, basic);
         agents.push(superAgent);
