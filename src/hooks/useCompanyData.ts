@@ -27,14 +27,14 @@ export function useCompanyData(id: string): UseCompanyDataReturn {
   const fetchAll = useCallback(async () => {
     try {
       setError(null);
-      const [companiesRes, diagRes, logsRes] = await Promise.allSettled([
-        fetch(/api/companies/+id).then(r => { if (!r.ok) throw new Error('companies'); return r.json(); }),
+      const [companyRes, diagRes, logsRes] = await Promise.allSettled([
+        fetch('/api/companies/' + id).then(r => { if (!r.ok) throw new Error('companies'); return r.json(); }),
         fetch('/api/supervisor?action=diagnosis').then(r => { if (!r.ok) throw new Error('diagnosis'); return r.json(); }),
         fetch('/api/orchestrator?action=log').then(r => { if (!r.ok) throw new Error('log'); return r.json(); }),
       ]);
 
       const found: Company | null =
-        companiesRes.status === 'fulfilled' ? companiesRes.value as Company : null;
+        companyRes.status === 'fulfilled' ? companyRes.value as Company : null;
 
       setCompany(found ?? null);
       companyTypeRef.current = found?.type ?? null;
@@ -79,7 +79,7 @@ export function useCompanyData(id: string): UseCompanyDataReturn {
       if (companyTypeRef.current === 'trading') {
         interval = setInterval(fetchAll, TRADING_POLL_MS);
       } else if (companyTypeRef.current === 'marketing') {
-        interval = setInterval(fetchAll, 3000); // cada 3 segundos
+        interval = setInterval(fetchAll, 3000);
       } else {
         interval = setInterval(fetchAll, 10000);
       }
