@@ -13,21 +13,32 @@ export async function GET(
     if (!company) {
       return NextResponse.json({ error: 'Empresa no encontrada' }, { status: 404 });
     }
-    
-    // 🔥 NUEVO: Para empresas de marketing, actualizar estados desde SuperAgentes
+
+    // 🔥 Sincronizar estados desde SuperAgentes (Redis: agente:<companyId>:<agentName>)
     if (company.type === 'marketing') {
       const updatedAgents = await Promise.all(
         company.agents.map(async (agent) => {
-          // Buscar el SuperAgente en Redis
-          const superKey = `agente:${id}:${agent.name.replace('Agente-', 'Agent-')}`;
-          const superRaw = await redis.get(superKey);
-          if (superRaw) {
-            try {
-              const superAgent = typeof superRaw === 'string' ? JSON.parse(superRaw) : superRaw;
-              // Actualizar el estado del agente básico con el estado del SuperAgente
-              return { ...agent, status: superAgent.status };
-            } catch (e) {
-              return agent;
+          // Probar variantes del nombre por si hay inconsistencia "Agent-" vs "Agente-"
+          const candidates = [
+            agent.name,
+            agent.name.replace('Agente-', 'Agent-'),
+            agent.name.replace('Agent-', 'Agente-'),
+          ];
+          const uniqueCandidates = Array.from(new Set(candidates));
+
+          for (const candidate of uniqueCandidates) {
+            const superKey = `agente:${id}:${candidate}`;
+            const superRaw = await redis.get(superKey);
+            if (superRaw) {
+              try {
+                const superAgent =
+                  typeof superRaw === 'string' ? JSON.parse(superRaw) : superRaw;
+                if (superAgent?.status) {
+                  return { ...agent, status: superAgent.status };
+                }
+              } catch {
+                // ignorar y probar siguiente candidato
+              }
             }
           }
           return agent;
@@ -35,7 +46,7 @@ export async function GET(
       );
       return NextResponse.json({ ...company, agents: updatedAgents });
     }
-    
+
     return NextResponse.json(company);
   } catch (error) {
     return NextResponse.json({ error: 'Error al obtener empresa' }, { status: 500 });
@@ -78,11 +89,11 @@ export async function PUT(
   try {
     const body = await request.json();
     const updatedCompany = await updateCompany(id, body);
-    
+
     if (!updatedCompany) {
       return NextResponse.json({ error: 'Empresa no encontrada' }, { status: 404 });
     }
-    
+
     return NextResponse.json(updatedCompany);
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
