@@ -202,7 +202,33 @@ async function scrapePlatform(platform: string): Promise<AffiliateProduct[]> {
       return await searchHotmartProducts('marketing');
     } catch (error: any) {
       logOrchestratorAction(`marketing:hotmart_error:${error.message}`);
-      return [];
+      // PRODUCTOS DE PRUEBA
+      return [
+        {
+          id: 'test-1',
+          name: 'Curso de Marketing Digital Avanzado',
+          description: 'Aprende a vender en TikTok e Instagram',
+          price: 47,
+          commission: 50,
+          platform: 'hotmart',
+          affiliateUrl: 'https://hotmart.com/test',
+          imageUrl: '',
+          category: 'marketing',
+          rating: 4.5
+        },
+        {
+          id: 'test-2',
+          name: 'Pack de Plantillas para Embudos',
+          description: 'Diseños profesionales para alta conversión',
+          price: 27,
+          commission: 60,
+          platform: 'hotmart',
+          affiliateUrl: 'https://hotmart.com/test2',
+          imageUrl: '',
+          category: 'marketing',
+          rating: 4.8
+        }
+      ];
     }
   }
   return [];
