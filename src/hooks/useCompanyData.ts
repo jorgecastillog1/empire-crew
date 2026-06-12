@@ -80,6 +80,10 @@ export function useCompanyData(id: string): UseCompanyDataReturn {
     const setupTimer = setTimeout(() => {
       if (companyTypeRef.current === 'trading') {
         interval = setInterval(fetchAll, TRADING_POLL_MS);
+      } else if (companyTypeRef.current === 'marketing') {
+        interval = setInterval(fetchAll, 3000); // cada 3 segundos
+      } else {
+        interval = setInterval(fetchAll, 10000);
       }
     }, 500);
     return () => {
