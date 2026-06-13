@@ -219,50 +219,16 @@ async function scrapePlatform(platform: string): Promise<AffiliateProduct[]> {
   logOrchestratorAction(`marketing:scraping:${platform}`);
   if (platform === 'hotmart') {
     try {
-      // Obtener token primero
-      const token = await getHotmartToken();
-      
-      // Buscar productos afiliados del usuario
-      const url = 'https://api.hotmart.com/affiliates/api/v1/products?pageSize=50';
-      
-      const response = await fetch(url, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Hotmart API error: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      const items = data.items || data.data || [];
-      
-      if (!items.length) {
-        logOrchestratorAction('marketing:hotmart:no_products');
+      const raw = await redis.get<string>('empire:marketing:hotmart-watchlist');
+      const products = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : [];
+      if (!products.length) {
+        logOrchestratorAction('marketing:hotmart:watchlist_vacia');
         return [];
       }
-      
-      const affiliateId = HOTMART_AFFILIATE_ID || 'sin_afiliado';
-      
-      return items.map((item: any) => ({
-        id: item.id || item.productId,
-        name: item.name,
-        description: item.description || item.shortDescription || '',
-        price: item.price?.amount || item.price || 0,
-        commission: item.commission?.percent || item.commission || 0,
-        platform: 'hotmart',
-        affiliateUrl: `https://go.hotmart.com/${item.id}?affiliate_id=${affiliateId}`,
-        imageUrl: item.imageUrl || '',
-        category: item.category || '',
-        rating: item.rating || 0
-      }));
-      
+      logOrchestratorAction(`marketing:hotmart:watchlist:${products.length}_productos`);
+      return products;
     } catch (error: any) {
       logOrchestratorAction(`marketing:hotmart_error:${error.message}`);
-      // Si falla la API, retorna array vacío (sin productos de prueba)
       return [];
     }
   }
