@@ -35,14 +35,12 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const body = await request.json();
   const secret = body.secret || request.headers.get('x-cron-secret');
-
   if (secret !== CRON_SECRET) {
     await logOrchestratorAction('marketing:cycle:unauthorized');
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
-
   try {
-    const result = await runMarketingCycle();
+    const result = await runMarketingCycle(body.forcedProductName);
     return NextResponse.json({ success: true, cycleLog: result });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });

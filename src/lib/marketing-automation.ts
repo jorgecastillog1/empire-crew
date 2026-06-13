@@ -239,8 +239,18 @@ async function scrapePlatform(platform: string): Promise<AffiliateProduct[]> {
 // Filtrar productos con IA
 // ============================================================
 
-async function filterProductsByAI(products: AffiliateProduct[]): Promise<AffiliateProduct[]> {
+async function filterProductsByAI(products: AffiliateProduct[], forcedProductName?: string): Promise<AffiliateProduct[]> {
   if (products.length === 0) return [];
+
+  // Si se pidió un producto específico, lo buscamos directamente sin pasar por la IA
+  if (forcedProductName) {
+    const normalized = forcedProductName.toLowerCase();
+    const match = products.find(p =>
+      p.name.toLowerCase().includes(normalized) || p.id.toLowerCase().includes(normalized)
+    );
+    return match ? [match] : [];
+  }
+
   const systemPrompt = `Eres un experto en marketing de afiliados. Selecciona los 3 mejores productos. Responde SOLO con un array de índices en JSON.`;
   const userMessage = `Productos:\n${products.map((p, i) => `${i}: ${p.name} - $${p.price} - ${p.commission}%`).join('\n')}`;
   const result = await callLLM({
@@ -445,7 +455,7 @@ async function updateAgentStatus(agentName: string, status: 'idle' | 'analyzing'
 // CICLO PRINCIPAL (con actualización de estado de agentes)
 // ============================================================
 
-export async function runMarketingCycle(): Promise<MarketingCycleLog> {
+export async function runMarketingCycle(forcedProductName?: string): Promise<MarketingCycleLog> {
   const startTime = Date.now();
   const errors: string[] = [];
   let productsFound = 0, productsFiltered = 0, campaignsGenerated = 0, published = 0;
@@ -500,7 +510,10 @@ export async function runMarketingCycle(): Promise<MarketingCycleLog> {
     await updateAgentStatus('Agent-SEO-Dominator', 'executing');
     console.log('🎯 Filtrando mejores productos...');
     
-    const bestProducts = await filterProductsByAI(allProducts);
+    const bestProducts = await filterProductsByAI(allProducts, forcedProductName);
+    if (forcedProductName && bestProducts.length === 0) {
+      errors.push(`No se encontró el producto "${forcedProductName}" en la watchlist`);
+    }
     productsFiltered = bestProducts.length;
     console.log(`📌 Productos filtrados: ${productsFiltered}`);
     
