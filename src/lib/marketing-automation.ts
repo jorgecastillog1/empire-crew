@@ -1,7 +1,6 @@
 // src/lib/marketing-automation.ts
-// Versión definitiva y estable - CON INTEGRACIÓN CON KAGGLE PARA VIDEOS
-// MODIFICADO: Actualiza el estado de los agentes en tiempo real (analyzing/executing/idle)
-// Los nombres de agentes coinciden con los guardados en Redis (español)
+// Versión DEFINITIVA - Con video blueprint 9:16, voz ElevenLabs, validación de duración
+// Incluye todas las recomendaciones para videos virales de venta (>60s, 5+ escenas)
 
 import { redis } from './redis';
 import { callLLM } from './orchestrator';
@@ -25,6 +24,36 @@ export interface AffiliateProduct {
   videoUrl?: string;
   category?: string;
   rating?: number;
+}
+
+export interface VideoScene {
+  duration_sec: number;
+  visual_prompt: string;
+  narration_text: string;
+  emotion: 'urgent' | 'inspiring' | 'trust' | 'curiosity';
+}
+
+export interface VideoBlueprint {
+  strategy: 'AIDA' | 'PAS' | 'STORYBRAND' | 'BAB';
+  totalDuration: number;
+  scenes: VideoScene[];
+  music_genre: 'energetic' | 'emotional' | 'corporate' | 'suspense';
+  text_overlays: {
+    hook_text: string;
+    cta_text: string;
+    price_text?: string;
+  };
+}
+
+export interface CampaignContent {
+  hook: string;
+  uniqueValueProp: string;
+  socialProof: string;
+  urgentCallToAction: string;
+  fullCopy: string;
+  videoScript: string;
+  leadMagnetMarkdown: string;
+  videoBlueprint: VideoBlueprint;
 }
 
 export interface CampaignData {
@@ -53,7 +82,7 @@ export interface MarketingCycleLog {
 }
 
 // ============================================================
-// Configuración de Cloudinary
+// Configuración
 // ============================================================
 
 const CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME || '';
@@ -61,21 +90,21 @@ const API_KEY = process.env.CLOUDINARY_API_KEY || '';
 const API_SECRET = process.env.CLOUDINARY_API_SECRET || '';
 const UPLOAD_PRESET = 'empire_marketing_leadmagnets';
 
-// ============================================================
-// Configuración de Hotmart
-// ============================================================
-
 const HOTMART_CLIENT_ID = process.env.HOTMART_CLIENT_ID || '';
 const HOTMART_CLIENT_SECRET = process.env.HOTMART_CLIENT_SECRET || '';
 const HOTMART_AFFILIATE_ID = process.env.HOTMART_AFFILIATE_ID || '';
 let hotmartAccessToken: string | null = null;
 let tokenExpiresAt = 0;
 
-// ============================================================
-// Configuración de Kaggle
-// ============================================================
-
 const KAGGLE_VIDEO_API_URL = process.env.KAGGLE_VIDEO_API_URL || '';
+
+// Constantes de video
+const MIN_VIDEO_DURATION = 60;  // segundos mínimo para algoritmo
+const MAX_VIDEO_DURATION = 90;  // segundos máximo para retención
+const DEFAULT_FPS = 24;
+const DEFAULT_ASPECT_RATIO = '9:16';
+const DEFAULT_VOICE_ID = 'es-CO-LinaNeural';
+const DEFAULT_MUSIC_GENRE = 'energetic';
 
 // ============================================================
 // Helper: Autenticación Hotmart
@@ -178,7 +207,7 @@ async function searchHotmartProducts(query: string = ''): Promise<AffiliateProdu
 }
 
 // ============================================================
-// Helper: Subir lead magnet o funnel a Cloudinary (raw)
+// Helper: Subir lead magnet o funnel a Cloudinary
 // ============================================================
 
 async function uploadToCloudinary(content: string, publicId: string, contentType: 'text/markdown' | 'text/html'): Promise<string> {
@@ -212,7 +241,7 @@ async function searchPexelsImage(query: string): Promise<string> {
 }
 
 // ============================================================
-// Helper: Scraping de plataforma (Hotmart real SIN fallback)
+// Helper: Scraping de plataforma
 // ============================================================
 
 async function scrapePlatform(platform: string): Promise<AffiliateProduct[]> {
@@ -242,7 +271,6 @@ async function scrapePlatform(platform: string): Promise<AffiliateProduct[]> {
 async function filterProductsByAI(products: AffiliateProduct[], forcedProductName?: string): Promise<AffiliateProduct[]> {
   if (products.length === 0) return [];
 
-  // Si se pidió un producto específico, lo buscamos directamente sin pasar por la IA
   if (forcedProductName) {
     const normalized = forcedProductName.toLowerCase();
     const match = products.find(p =>
@@ -268,47 +296,165 @@ async function filterProductsByAI(products: AffiliateProduct[], forcedProductNam
 }
 
 // ============================================================
-// Generar contenido de campaña
+// ⭐ GENERAR CONTENIDO DE CAMPAÑA (CON VIDEO BLUEPRINT)
 // ============================================================
 
-async function generateCampaignContent(product: AffiliateProduct): Promise<{
-  hook: string;
-  uniqueValueProp: string;
-  socialProof: string;
-  urgentCallToAction: string;
-  fullCopy: string;
-  videoScript: string;
-  leadMagnetMarkdown: string;
-}> {
-  const systemPrompt = `Eres un creador de contenido para TikTok/Reels. Genera una campaña en JSON para vender un producto. Formato:
+async function generateCampaignContent(product: AffiliateProduct): Promise<CampaignContent> {
+  const systemPrompt = `Eres un estratega de video viral para TikTok/Reels/Shorts. Tu misión es diseñar un video que VENDA el producto.
+
+REGLAS ESTRICTAS:
+1. El video debe durar entre ${MIN_VIDEO_DURATION} y ${MAX_VIDEO_DURATION} SEGUNDOS (más de 60s para algoritmo, menos de 90s para retención)
+2. Usa la estructura: HOOK (3s) → PROBLEMA (10s) → AGITACIÓN (15s) → SOLUCIÓN (20s) → PRUEBA SOCIAL (10s) → CTA (5s)
+3. MÍNIMO 5 escenas, MÁXIMO 8 escenas
+4. Cada escena debe tener:
+   - duration_sec: entre 4 y 12 segundos (según complejidad)
+   - visual_prompt: SOLO descripción visual en INGLÉS, sin texto, sin palabras de venta, incluye movimiento de cámara
+   - narration_text: guión para voice-over en ESPAÑOL, conversacional, como amigo recomendando
+   - emotion: "urgent" | "inspiring" | "trust" | "curiosity"
+5. VOZ recomendada: "${DEFAULT_VOICE_ID}" (colombiana, cálida, persuasiva)
+6. MÚSICA: "energetic" para energía, "emotional" para storytelling
+
+Responde SOLO con JSON en este formato exacto:
 {
-  "hook": "Frase gancho (máx 8 palabras)",
-  "uniqueValueProp": "qué lo hace único (15 palabras)",
-  "socialProof": "testimonio o dato (10 palabras)",
-  "urgentCallToAction": "acción urgente (máx 6 palabras)",
-  "fullCopy": "texto para post de red social (60-80 palabras, estilo conversacional con emojis)",
-  "videoScript": "guión para video de 30 segundos, dividido en escenas.",
-  "leadMagnetMarkdown": "contenido del lead magnet en Markdown (1 página)"
+  "strategy": "AIDA|PAS|STORYBRAND|BAB",
+  "totalDuration": 75,
+  "scenes": [
+    {
+      "duration_sec": 6,
+      "visual_prompt": "A frustrated woman in her 30s sitting at a messy desk at night, dark circles under eyes, looking at phone showing 6am alarm. Low angle, slow zoom in on her face. Blue cold light from phone screen. Tired expression. Camera slowly pushes in.",
+      "narration_text": "¿Te cuesta despertar cada mañana? Suena el despertador y ya quieres apagarlo...",
+      "emotion": "urgent"
+    }
+  ],
+  "music_genre": "energetic",
+  "text_overlays": {
+    "hook_text": "🔥 ¿CANSADO DE DESPERTAR ASÍ?",
+    "cta_text": "🔗 LINK EN BIO - ÚLTIMAS 48H",
+    "price_text": "🎁 OFERTA ESPECIAL $${product.price}"
+  }
 }`;
-  const userMessage = `Producto: ${product.name}\nDescripción: ${product.description}\nPrecio: $${product.price}\nComisión: ${product.commission}%`;
+
+  const userMessage = `Producto: ${product.name}
+Descripción: ${product.description}
+Precio: $${product.price}
+Comisión: ${product.commission}%
+Plataforma: ${product.platform}`;
+
   const result = await callLLM({
     systemPrompt,
     userMessage,
-    agentId: 'marketing-copywriter',
-    maxTokens: 2000,
+    agentId: 'video-strategist',
+    maxTokens: 2500,
+    temperature: 0.7,
   });
+
   try {
     const clean = result.response.replace(/```json|```/g, '').trim();
-    return JSON.parse(clean);
-  } catch {
+    const parsed = JSON.parse(clean);
+    
+    // Validar que tenga al menos 5 escenas
+    if (!parsed.scenes || parsed.scenes.length < 5) {
+      console.warn('⚠️ Blueprint con menos de 5 escenas, usando valores por defecto');
+      throw new Error('Invalid blueprint');
+    }
+    
+    // Validar duración total
+    let totalDuration = parsed.scenes.reduce((sum: number, s: any) => sum + s.duration_sec, 0);
+    if (totalDuration < MIN_VIDEO_DURATION) {
+      console.warn(`⚠️ Video muy corto: ${totalDuration}s. Ajustando a ${MIN_VIDEO_DURATION}s...`);
+      const scale = MIN_VIDEO_DURATION / totalDuration;
+      for (const scene of parsed.scenes) {
+        scene.duration_sec = Math.round(scene.duration_sec * scale);
+      }
+    }
+    if (totalDuration > MAX_VIDEO_DURATION) {
+      console.warn(`⚠️ Video muy largo: ${totalDuration}s. Ajustando a ${MAX_VIDEO_DURATION}s...`);
+      const scale = MAX_VIDEO_DURATION / totalDuration;
+      for (const scene of parsed.scenes) {
+        scene.duration_sec = Math.round(scene.duration_sec * scale);
+      }
+    }
+    
+    // Asegurar que cada visual_prompt tenga movimiento explícito
+    const movementKeywords = ['camera', 'move', 'pan', 'zoom', 'dolly', 'slow', 'rotate', 'push', 'track'];
+    for (const scene of parsed.scenes) {
+      const hasMovement = movementKeywords.some(kw => scene.visual_prompt.toLowerCase().includes(kw));
+      if (!hasMovement && scene.duration_sec >= 6) {
+        scene.visual_prompt += ' Slow camera dolly forward, subtle cinematic movement, professional tracking shot, not static.';
+      } else if (!hasMovement && scene.duration_sec <= 5) {
+        scene.visual_prompt += ' Micro camera movement, slightly dynamic, breathing motion, not completely static.';
+      }
+    }
+    
+    return {
+      hook: parsed.text_overlays?.hook_text || `🔥 ¡ATENCIÓN!`,
+      uniqueValueProp: product.description.slice(0, 100) || `La herramienta que necesitas`,
+      socialProof: `Más de 1000 clientes satisfechos`,
+      urgentCallToAction: parsed.text_overlays?.cta_text || `COMPRA ANTES DE 48H`,
+      fullCopy: `${parsed.text_overlays?.hook_text || '🔥'} ${product.name}. ${parsed.text_overlays?.cta_text || 'Oferta limitada.'}`,
+      videoScript: JSON.stringify(parsed.scenes),
+      leadMagnetMarkdown: `# Guía gratuita: ${product.name}\n\n## ¿Qué vas a aprender?\n\nContenido exclusivo para ti...`,
+      videoBlueprint: parsed,
+    };
+    
+  } catch (error) {
+    console.error('Error parsing blueprint, using fallback:', error);
+    
+    // FALLBACK: 5 escenas mínimas garantizadas
+    const fallbackScenes: VideoScene[] = [
+      {
+        duration_sec: 8,
+        visual_prompt: `Person frustrated with problem. Close up on face, tired expression. Slow zoom in. Professional lighting, cinematic quality.`,
+        narration_text: `¿Te pasa esto a ti también?`,
+        emotion: 'urgent'
+      },
+      {
+        duration_sec: 12,
+        visual_prompt: `The problem getting worse. Dramatic lighting, worried expression. Camera shake slightly, tension building.`,
+        narration_text: `Y cada día es peor, ¿verdad?`,
+        emotion: 'urgent'
+      },
+      {
+        duration_sec: 15,
+        visual_prompt: `Solution appears. Warm lighting, hopeful expression. Slow dolly forward towards the solution. Golden hour glow.`,
+        narration_text: `Pero hay una solución. Y es más simple de lo que crees.`,
+        emotion: 'inspiring'
+      },
+      {
+        duration_sec: 20,
+        visual_prompt: `Person using ${product.name}, seeing results. Smiling, confident. Medium shot, stable camera. Bright, energetic atmosphere.`,
+        narration_text: `Mira los resultados. En solo 5 minutos al día. ${product.name} cambia todo.`,
+        emotion: 'trust'
+      },
+      {
+        duration_sec: 10,
+        visual_prompt: `Person pointing to camera, confident smile. Direct eye contact, warm lighting. Final frame holds for 2 seconds.`,
+        narration_text: `Link en bio. Oferta por tiempo limitado. No te lo pierdas.`,
+        emotion: 'urgent'
+      }
+    ];
+    
+    const fallbackBlueprint: VideoBlueprint = {
+      strategy: 'AIDA',
+      totalDuration: fallbackScenes.reduce((sum, s) => sum + s.duration_sec, 0),
+      scenes: fallbackScenes,
+      music_genre: DEFAULT_MUSIC_GENRE,
+      text_overlays: {
+        hook_text: `🔥 ¿TE SIENTES IDENTIFICADO?`,
+        cta_text: `🔗 LINK EN BIO - OFERTA LIMITADA`,
+        price_text: product.price > 0 ? `🎁 $${product.price}` : undefined
+      }
+    };
+    
     return {
       hook: `🔥 ¡ATENCIÓN!`,
-      uniqueValueProp: `La herramienta que todo afiliado necesita`,
-      socialProof: `Más de 1000 ventas confirmadas`,
+      uniqueValueProp: product.description.slice(0, 100) || `La herramienta que necesitas`,
+      socialProof: `Más de 1000 clientes satisfechos`,
       urgentCallToAction: `COMPRA ANTES DE 48H`,
-      fullCopy: `¿Listo para multiplicar tus ventas? Este producto es la clave. 🔥 Oferta limitada.`,
-      videoScript: `[ESCENA 1] ¿Estás perdiendo ventas? [ESCENA 2] Este producto te ayudará...`,
-      leadMagnetMarkdown: `# Guía gratuita\n\nContenido descargable...`,
+      fullCopy: `¿Listo para transformar tu vida? ${product.name} es la clave. 🔥 Oferta limitada.`,
+      videoScript: JSON.stringify(fallbackScenes),
+      leadMagnetMarkdown: `# Guía gratuita: ${product.name}\n\nContenido exclusivo...`,
+      videoBlueprint: fallbackBlueprint,
     };
   }
 }
@@ -352,17 +498,17 @@ async function publishCampaignToAllNetworks(campaign: CampaignData): Promise<num
 }
 
 // ============================================================
-// FUNCIÓN: Enviar prompts a Kaggle para generar video
+// ⭐ FUNCIÓN: Enviar a Kaggle con BLUEPRINT completo
 // ============================================================
 
 async function triggerKaggleVideoGeneration(
   product: AffiliateProduct, 
-  content: any,
+  content: CampaignContent,
   jobId?: string
 ): Promise<{ jobId: string; status: string; message?: string }> {
   
   if (!KAGGLE_VIDEO_API_URL) {
-    console.error('❌ KAGGLE_VIDEO_API_URL no configurada en .env.local');
+    console.error('❌ KAGGLE_VIDEO_API_URL no configurada');
     logOrchestratorAction('marketing:video:error:no_kaggle_url');
     return { jobId: 'error', status: 'no_kaggle_url', message: 'KAGGLE_VIDEO_API_URL no configurada' };
   }
@@ -370,33 +516,115 @@ async function triggerKaggleVideoGeneration(
   const finalJobId = jobId || `hotmart_${product.id}_${Date.now()}`;
   const callbackUrl = `${process.env.NEXTAUTH_URL || 'https://empire-crew.vercel.app'}/api/marketing/video-callback`;
   
-  const scenes = [
-    {
-      prompt: `${content.hook} ${content.uniqueValueProp} Iluminación cálida, cámara lenta.`.slice(0, 250),
-      duration_sec: 5
-    },
-    {
-      prompt: `${content.fullCopy} Movimiento suave de cámara, expresión confiada.`.slice(0, 250),
-      duration_sec: 8
-    },
-    {
-      prompt: `${content.socialProof} ${content.urgentCallToAction} Cámara hace zoom, tono urgente.`.slice(0, 250),
-      duration_sec: 4
-    }
-  ];
+  // Usar el blueprint generado por IA
+  const blueprint = content.videoBlueprint;
+  let scenes = [];
   
+  if (blueprint && blueprint.scenes && blueprint.scenes.length >= 5) {
+    scenes = blueprint.scenes.map((scene: VideoScene) => ({
+      visual_prompt: scene.visual_prompt,
+      duration_sec: scene.duration_sec,
+      narration_text: scene.narration_text,
+      emotion: scene.emotion
+    }));
+    
+    // Validar duración total
+    let totalDuration = scenes.reduce((sum: number, s: any) => sum + s.duration_sec, 0);
+    
+    if (totalDuration < MIN_VIDEO_DURATION) {
+      console.warn(`⚠️ Video muy corto: ${totalDuration}s. Ajustando a ${MIN_VIDEO_DURATION}s...`);
+      const scale = MIN_VIDEO_DURATION / totalDuration;
+      for (const scene of scenes) {
+        scene.duration_sec = Math.round(scene.duration_sec * scale);
+      }
+      totalDuration = MIN_VIDEO_DURATION;
+      console.log(`   📏 Duración ajustada a ${totalDuration}s`);
+    }
+    
+    if (totalDuration > MAX_VIDEO_DURATION) {
+      console.warn(`⚠️ Video muy largo: ${totalDuration}s. Ajustando a ${MAX_VIDEO_DURATION}s...`);
+      const scale = MAX_VIDEO_DURATION / totalDuration;
+      for (const scene of scenes) {
+        scene.duration_sec = Math.round(scene.duration_sec * scale);
+      }
+      totalDuration = MAX_VIDEO_DURATION;
+      console.log(`   📏 Duración ajustada a ${totalDuration}s`);
+    }
+    
+    console.log(`📹 Blueprint validado: ${scenes.length} escenas, ${totalDuration}s totales`);
+    
+  } else {
+    // FALLBACK: construir 5 escenas manualmente
+    console.warn('⚠️ No hay blueprint válido, usando escenas por defecto');
+    scenes = [
+      {
+        visual_prompt: `Person frustrated with problem. Close up on face, tired expression. Slow zoom in. Professional lighting, cinematic quality.`,
+        duration_sec: 8,
+        narration_text: content.hook || `¿Te pasa esto a ti también?`,
+        emotion: 'urgent'
+      },
+      {
+        visual_prompt: `The problem getting worse. Dramatic lighting, worried expression. Camera shake slightly, tension building.`,
+        duration_sec: 12,
+        narration_text: content.uniqueValueProp || `Y cada día es peor, ¿verdad?`,
+        emotion: 'urgent'
+      },
+      {
+        visual_prompt: `Solution appears. Warm lighting, hopeful expression. Slow dolly forward towards the solution. Golden hour glow.`,
+        duration_sec: 15,
+        narration_text: content.socialProof || `Pero hay una solución. Y es más simple de lo que crees.`,
+        emotion: 'inspiring'
+      },
+      {
+        visual_prompt: `Person using the solution, seeing results. Smiling, confident. Medium shot, stable camera. Bright, energetic atmosphere.`,
+        duration_sec: 20,
+        narration_text: content.fullCopy || `Mira los resultados. En solo 5 minutos al día.`,
+        emotion: 'trust'
+      },
+      {
+        visual_prompt: `Person pointing to camera, confident smile. Direct eye contact, warm lighting. Final frame holds for 2 seconds.`,
+        duration_sec: 10,
+        narration_text: content.urgentCallToAction || `Link en bio. Oferta por tiempo limitado. No te lo pierdas.`,
+        emotion: 'urgent'
+      }
+    ];
+  }
+  
+  // Asegurar movimiento en cada escena (redundante pero seguro)
+  const movementKeywords = ['camera', 'move', 'pan', 'zoom', 'dolly', 'slow', 'rotate', 'push', 'track'];
+  for (const scene of scenes) {
+    const hasMovement = movementKeywords.some(kw => scene.visual_prompt.toLowerCase().includes(kw));
+    if (!hasMovement && scene.duration_sec >= 6) {
+      scene.visual_prompt += ' Slow camera dolly forward, subtle cinematic movement, professional tracking shot, not static.';
+    } else if (!hasMovement && scene.duration_sec <= 5) {
+      scene.visual_prompt += ' Micro camera movement, slightly dynamic, breathing motion, not completely static.';
+    }
+  }
+  
+  const payload = {
+    job_id: finalJobId,
+    scenes: scenes,
+    callback_url: callbackUrl,
+    text_overlays: blueprint?.text_overlays || {
+      hook_text: content.hook?.slice(0, 30) || '🔥 ¡ATENCIÓN!',
+      cta_text: content.urgentCallToAction || '🔗 LINK EN BIO',
+      price_text: product.price > 0 ? `🎁 $${product.price}` : undefined
+    },
+    music_genre: blueprint?.music_genre || DEFAULT_MUSIC_GENRE,
+    voice_id: DEFAULT_VOICE_ID,
+    aspect_ratio: DEFAULT_ASPECT_RATIO
+  };
+  
+  const totalDuration = scenes.reduce((sum, s) => sum + s.duration_sec, 0);
   console.log(`📹 Enviando job ${finalJobId} a Kaggle...`);
+  console.log(`   Escenas: ${scenes.length}, Duración total: ${totalDuration}s, Formato: ${DEFAULT_ASPECT_RATIO}`);
   logOrchestratorAction(`marketing:video:enviando:${finalJobId}`);
   
   try {
     const response = await fetch(`${KAGGLE_VIDEO_API_URL}/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        job_id: finalJobId,
-        scenes: scenes,
-        callback_url: callbackUrl
-      })
+      body: JSON.stringify(payload)
     });
     
     if (!response.ok) {
@@ -413,13 +641,15 @@ async function triggerKaggleVideoGeneration(
       productName: product.name,
       status: 'queued',
       createdAt: Date.now(),
-      scenes: scenes.length
+      scenes: scenes.length,
+      totalDuration: totalDuration,
+      aspectRatio: DEFAULT_ASPECT_RATIO
     }));
     
     return { 
       jobId: finalJobId, 
       status: data.status || 'queued',
-      message: `Video encolado en Kaggle`
+      message: `Video encolado en Kaggle (${scenes.length} escenas, ${totalDuration}s, ${DEFAULT_ASPECT_RATIO})`
     };
     
   } catch (error: any) {
@@ -430,13 +660,12 @@ async function triggerKaggleVideoGeneration(
 }
 
 // ============================================================
-// FUNCIÓN AUXILIAR: Actualizar estado de un agente específico
+// FUNCIÓN AUXILIAR: Actualizar estado de un agente
 // ============================================================
 
 async function updateAgentStatus(agentName: string, status: 'idle' | 'analyzing' | 'executing' | 'deliberating' | 'vetoed'): Promise<void> {
   try {
     const { loadAgentState, saveAgentState } = await import('./orchestrator');
-    // El ID del agente en Redis es el nombre exacto (ej: "Agent-Ad-Creative")
     const agent = await loadAgentState('marketing-pro', agentName);
     if (agent) {
       agent.status = status;
@@ -452,7 +681,7 @@ async function updateAgentStatus(agentName: string, status: 'idle' | 'analyzing'
 }
 
 // ============================================================
-// CICLO PRINCIPAL (con actualización de estado de agentes)
+// ⭐ CICLO PRINCIPAL DE MARKETING (con todas las mejoras)
 // ============================================================
 
 export async function runMarketingCycle(forcedProductName?: string): Promise<MarketingCycleLog> {
@@ -462,9 +691,7 @@ export async function runMarketingCycle(forcedProductName?: string): Promise<Mar
   
   await logOrchestratorAction('marketing:cycle:start');
   
-  // ============================================================
-  // PASO 1: Poner todos los agentes en estado "analyzing"
-  // ============================================================
+  // PASO 1: Poner agentes en "analyzing"
   const agentNames = [
     'Agent-Neuro-Copywriter',
     'Agent-Funnel-Architect',
@@ -478,15 +705,13 @@ export async function runMarketingCycle(forcedProductName?: string): Promise<Mar
     'Agent-Video-Producer'
   ];
   
-  console.log('🟡 Iniciando ciclo de marketing...');
+  console.log('🟡 Iniciando ciclo de marketing (Modo Viral 9:16)...');
   for (const name of agentNames) {
     await updateAgentStatus(name, 'analyzing');
   }
   
   try {
-    // ============================================================
     // PASO 2: Agent-Affiliate-Scout busca productos
-    // ============================================================
     await updateAgentStatus('Agent-Affiliate-Scout', 'executing');
     console.log('🔍 Buscando productos afiliados...');
     
@@ -504,9 +729,7 @@ export async function runMarketingCycle(forcedProductName?: string): Promise<Mar
     console.log(`📦 Productos encontrados: ${productsFound}`);
     await updateAgentStatus('Agent-Affiliate-Scout', 'analyzing');
     
-    // ============================================================
     // PASO 3: Agent-SEO-Dominator filtra productos
-    // ============================================================
     await updateAgentStatus('Agent-SEO-Dominator', 'executing');
     console.log('🎯 Filtrando mejores productos...');
     
@@ -519,32 +742,36 @@ export async function runMarketingCycle(forcedProductName?: string): Promise<Mar
     
     await updateAgentStatus('Agent-SEO-Dominator', 'analyzing');
     
-    // ============================================================
-    // PASO 4: Procesar cada producto (varios agentes trabajan)
-    // ============================================================
+    // PASO 4: Procesar cada producto
     for (const product of bestProducts) {
       try {
         console.log(`\n📹 Procesando producto: ${product.name}`);
         
-        // 4.1 Agent-Neuro-Copywriter genera contenido
+        // 4.1 Agent-Neuro-Copywriter genera contenido (con video blueprint)
         await updateAgentStatus('Agent-Neuro-Copywriter', 'executing');
-        console.log('✍️ Generando copy...');
+        console.log('✍️ Generando copy y blueprint de video...');
         const content = await generateCampaignContent(product);
         await updateAgentStatus('Agent-Neuro-Copywriter', 'analyzing');
         
         // 4.2 Agent-Ad-Creative busca imagen
         await updateAgentStatus('Agent-Ad-Creative', 'executing');
-        console.log('🖼️ Buscando imagen...');
+        console.log('🖼️ Buscando imagen para el producto...');
         const imageUrl = await searchPexelsImage(product.name);
         await updateAgentStatus('Agent-Ad-Creative', 'analyzing');
         
-        // 4.3 Agent-Video-Producer envía a Kaggle
+        // 4.3 Agent-Video-Producer envía blueprint a Kaggle
         let videoUrl = '';
         let videoJobId = '';
         
         if (KAGGLE_VIDEO_API_URL) {
           await updateAgentStatus('Agent-Video-Producer', 'executing');
-          console.log('🎬 Enviando a Kaggle...');
+          console.log('🎬 Enviando blueprint de video a Kaggle...');
+          console.log(`   Estrategia: ${content.videoBlueprint.strategy}`);
+          console.log(`   Escenas: ${content.videoBlueprint.scenes.length}`);
+          console.log(`   Duración total: ${content.videoBlueprint.totalDuration}s`);
+          console.log(`   Formato: ${DEFAULT_ASPECT_RATIO}`);
+          console.log(`   Música: ${content.videoBlueprint.music_genre}`);
+          
           const videoResult = await triggerKaggleVideoGeneration(product, content);
           videoJobId = videoResult.jobId;
           videoUrl = '';
@@ -552,11 +779,12 @@ export async function runMarketingCycle(forcedProductName?: string): Promise<Mar
           await updateAgentStatus('Agent-Video-Producer', 'analyzing');
         } else {
           logOrchestratorAction('marketing:video:skip:no_kaggle_url');
+          console.warn('⚠️ KAGGLE_VIDEO_API_URL no configurada, omitiendo generación de video');
         }
         
         // 4.4 Agent-Funnel-Architect construye funnel
         await updateAgentStatus('Agent-Funnel-Architect', 'executing');
-        console.log('🏗️ Construyendo funnel...');
+        console.log('🏗️ Construyendo funnel de venta...');
         const leadMagnetUrl = await uploadToCloudinary(content.leadMagnetMarkdown, `leadmagnet_${product.id}_${Date.now()}`, 'text/markdown');
         const funnelHtml = generateFunnelHtml(product, {
           hook: content.hook,
@@ -570,7 +798,7 @@ export async function runMarketingCycle(forcedProductName?: string): Promise<Mar
         
         // 4.5 Agent-Campaign-Automator publica
         await updateAgentStatus('Agent-Campaign-Automator', 'executing');
-        console.log('📢 Publicando campaña...');
+        console.log('📢 Publicando campaña en redes...');
         
         const campaign: CampaignData = {
           product: { ...product, imageUrl, videoUrl },
@@ -595,20 +823,22 @@ export async function runMarketingCycle(forcedProductName?: string): Promise<Mar
         
         await updateAgentStatus('Agent-Campaign-Automator', 'analyzing');
         console.log(`✅ Campaña generada para: ${product.name}`);
+        console.log(`   📹 Video job: ${videoJobId || 'N/A'}`);
+        console.log(`   📊 Estrategia: ${content.videoBlueprint.strategy}`);
+        console.log(`   🎬 Escenas: ${content.videoBlueprint.scenes.length}`);
+        console.log(`   ⏱️ Duración: ${content.videoBlueprint.totalDuration}s`);
         
       } catch (err: any) {
         errors.push(`Error con producto ${product.id}: ${err.message}`);
-        console.error(`❌ Error: ${err.message}`);
+        console.error(`❌ Error procesando ${product.name}: ${err.message}`);
       }
     }
   } catch (err: any) {
     errors.push(`Ciclo fallido: ${err.message}`);
-    console.error(`❌ Ciclo fallido: ${err.message}`);
+    console.error(`❌ Ciclo de marketing fallido: ${err.message}`);
   }
   
-  // ============================================================
   // PASO 5: Poner todos los agentes en estado "idle"
-  // ============================================================
   console.log('💤 Finalizando ciclo, agentes a idle...');
   for (const name of agentNames) {
     await updateAgentStatus(name, 'idle');
@@ -622,12 +852,21 @@ export async function runMarketingCycle(forcedProductName?: string): Promise<Mar
     published,
     errors,
   };
+  
   await redis.lpush('empire:marketing:cycle-logs', JSON.stringify(logEntry));
   await redis.ltrim('empire:marketing:cycle-logs', 0, 49);
-  await writeProof('marketing:cycle', { startTime }, logEntry, 'marketing-automation', 'marketing-pro');
-  await logOrchestratorAction(`marketing:cycle:done: prods=${productsFound}, campaigns=${campaignsGenerated}, pub=${published}, errors=${errors.length}`);
+  await writeProof('marketing:cycle', { startTime, forcedProductName }, logEntry, 'marketing-automation', 'marketing-pro');
+  await logOrchestratorAction(`marketing:cycle:done: prods=${productsFound}, filtered=${productsFiltered}, campaigns=${campaignsGenerated}, pub=${published}, errors=${errors.length}`);
 
-  console.log(`\n📊 RESUMEN: Productos: ${productsFound}, Filtrados: ${productsFiltered}, Campañas: ${campaignsGenerated}, Publicaciones: ${published}, Errores: ${errors.length}`);
+  console.log(`\n📊 RESUMEN DEL CICLO:`);
+  console.log(`   ✅ Productos encontrados: ${productsFound}`);
+  console.log(`   🎯 Productos filtrados: ${productsFiltered}`);
+  console.log(`   📹 Campañas generadas: ${campaignsGenerated}`);
+  console.log(`   📢 Publicaciones: ${published}`);
+  console.log(`   ⚠️ Errores: ${errors.length}`);
+  if (errors.length > 0) {
+    console.log(`   Detalle de errores:`, errors);
+  }
   
   return logEntry;
 }
