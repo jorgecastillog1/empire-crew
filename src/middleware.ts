@@ -19,7 +19,9 @@ const isPublicApi =
   req.nextUrl.pathname.startsWith('/api/supervisor') ||
   req.nextUrl.pathname.startsWith('/api/cron') ||
   req.nextUrl.pathname.startsWith('/api/planner') ||
-  req.nextUrl.pathname.startsWith('/api/marketing/video-callback');  // ← AGREGAR ESTA LÍNEA
+  req.nextUrl.pathname.startsWith('/api/marketing/video-callback') ||
+  req.nextUrl.pathname.startsWith('/api/marketing/cycle') ||
+  req.nextUrl.pathname.startsWith('/api/admin/productos');
 
   if (isApiAuth || isPublicApi) return NextResponse.next();
   if (!isLoggedIn && !isLoginPage) {
